@@ -240,6 +240,11 @@ function PermissionManager.getUserRole(userId)
     return userRoles[userId] or "VIEWER"
 end
 
+function PermissionManager.getCurrentUserRole()
+    local currentUser = Players.LocalPlayer.UserId
+    return PermissionManager.getUserRole(currentUser)
+end
+
 function PermissionManager.getAllRoles()
     return PERMISSION_ROLES
 end

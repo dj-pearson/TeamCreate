@@ -465,4 +465,15 @@ function ConflictResolver.cleanup()
     print("[TCE] Conflict Resolver cleaned up")
 end
 
+-- Module cross-reference methods
+function ConflictResolver.setAssetLockManager(assetLockManagerRef)
+    AssetLockManager = assetLockManagerRef
+    print("[TCE] ConflictResolver: AssetLockManager reference set")
+end
+
+function ConflictResolver.setPermissionManager(permissionManagerRef)
+    PermissionManager = permissionManagerRef
+    print("[TCE] ConflictResolver: PermissionManager reference set")
+end
+
 return ConflictResolver 

@@ -15,6 +15,12 @@ local currentTab = "overview"
 local tabButtons = {}
 local contentPanels = {}
 
+-- Module references (will be injected)
+local PermissionManager = nil
+local AssetLockManager = nil
+local ConnectionMonitor = nil
+local NotificationManager = nil
+
 -- UI Creation Utilities
 local function createRoundedFrame(parent, props)
     local frame = Instance.new("Frame")
@@ -185,10 +191,22 @@ local function createOverviewPanel(parent)
         Pulse = true
     })
     
+    local qualityLabel = Instance.new("TextLabel")
+    qualityLabel.Name = "QualityLabel"
+    qualityLabel.Parent = statusFrame
+    qualityLabel.Size = UDim2.new(1, -50, 0, 20)
+    qualityLabel.Position = UDim2.new(0, 40, 0, 40)
+    qualityLabel.BackgroundTransparency = 1
+    qualityLabel.Text = "Quality: Excellent"
+    qualityLabel.TextColor3 = UI_CONSTANTS.COLORS.TEXT_SECONDARY
+    qualityLabel.TextScaled = true
+    qualityLabel.Font = UI_CONSTANTS.FONTS.MAIN
+    qualityLabel.TextXAlignment = Enum.TextXAlignment.Left
+    
     -- Active Users
     local usersFrame = createRoundedFrame(panel, {
         Name = "ActiveUsers",
-        Size = UDim2.new(1, -20, 0, 120),
+        Size = UDim2.new(0.48, 0, 0, 120),
         Position = UDim2.new(0, 10, 0, 100)
     })
     
@@ -203,6 +221,25 @@ local function createOverviewPanel(parent)
     usersLabel.TextScaled = true
     usersLabel.Font = UI_CONSTANTS.FONTS.HEADER
     usersLabel.TextXAlignment = Enum.TextXAlignment.Left
+    
+    -- Current Statistics
+    local statsFrame = createRoundedFrame(panel, {
+        Name = "Statistics",
+        Size = UDim2.new(0.48, 0, 0, 120),
+        Position = UDim2.new(0.52, 0, 0, 100)
+    })
+    
+    local statsLabel = Instance.new("TextLabel")
+    statsLabel.Name = "StatsLabel"
+    statsLabel.Parent = statsFrame
+    statsLabel.Size = UDim2.new(1, -20, 0, 30)
+    statsLabel.Position = UDim2.new(0, 10, 0, 10)
+    statsLabel.BackgroundTransparency = 1
+    statsLabel.Text = "Session Stats"
+    statsLabel.TextColor3 = UI_CONSTANTS.COLORS.TEXT_PRIMARY
+    statsLabel.TextScaled = true
+    statsLabel.Font = UI_CONSTANTS.FONTS.HEADER
+    statsLabel.TextXAlignment = Enum.TextXAlignment.Left
     
     -- Recent Activity
     local activityFrame = createRoundedFrame(panel, {
@@ -222,6 +259,285 @@ local function createOverviewPanel(parent)
     activityLabel.TextScaled = true
     activityLabel.Font = UI_CONSTANTS.FONTS.HEADER
     activityLabel.TextXAlignment = Enum.TextXAlignment.Left
+    
+    return panel
+end
+
+local function createPermissionsPanel(parent)
+    local panel = createRoundedFrame(parent, {
+        Name = "PermissionsPanel",
+        Size = UDim2.new(1, -20, 1, -80),
+        Position = UDim2.new(0, 10, 0, 70)
+    })
+    
+    -- Title
+    local titleLabel = Instance.new("TextLabel")
+    titleLabel.Name = "TitleLabel"
+    titleLabel.Parent = panel
+    titleLabel.Size = UDim2.new(1, -20, 0, 40)
+    titleLabel.Position = UDim2.new(0, 10, 0, 10)
+    titleLabel.BackgroundTransparency = 1
+    titleLabel.Text = "🔐 Role-Based Permissions"
+    titleLabel.TextColor3 = UI_CONSTANTS.COLORS.TEXT_PRIMARY
+    titleLabel.TextScaled = true
+    titleLabel.Font = UI_CONSTANTS.FONTS.HEADER
+    titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+    
+    -- Current User Role
+    local myRoleFrame = createRoundedFrame(panel, {
+        Name = "MyRole",
+        Size = UDim2.new(1, -20, 0, 60),
+        Position = UDim2.new(0, 10, 0, 60),
+        Glow = true,
+        GlowColor = UI_CONSTANTS.COLORS.ACCENT_PURPLE
+    })
+    
+    local myRoleLabel = Instance.new("TextLabel")
+    myRoleLabel.Name = "MyRoleLabel"
+    myRoleLabel.Parent = myRoleFrame
+    myRoleLabel.Size = UDim2.new(1, -20, 0, 25)
+    myRoleLabel.Position = UDim2.new(0, 10, 0, 5)
+    myRoleLabel.BackgroundTransparency = 1
+    myRoleLabel.Text = "Your Role: Developer"
+    myRoleLabel.TextColor3 = UI_CONSTANTS.COLORS.TEXT_PRIMARY
+    myRoleLabel.TextScaled = true
+    myRoleLabel.Font = UI_CONSTANTS.FONTS.MAIN
+    myRoleLabel.TextXAlignment = Enum.TextXAlignment.Left
+    
+    local myPermissionsLabel = Instance.new("TextLabel")
+    myPermissionsLabel.Name = "MyPermissionsLabel"
+    myPermissionsLabel.Parent = myRoleFrame
+    myPermissionsLabel.Size = UDim2.new(1, -20, 0, 25)
+    myPermissionsLabel.Position = UDim2.new(0, 10, 0, 30)
+    myPermissionsLabel.BackgroundTransparency = 1
+    myPermissionsLabel.Text = "Permissions: Script Edit, Build Edit, Asset Lock"
+    myPermissionsLabel.TextColor3 = UI_CONSTANTS.COLORS.TEXT_SECONDARY
+    myPermissionsLabel.TextScaled = true
+    myPermissionsLabel.Font = UI_CONSTANTS.FONTS.MAIN
+    myPermissionsLabel.TextXAlignment = Enum.TextXAlignment.Left
+    
+    -- Role Management (for admins)
+    local roleManagementFrame = createRoundedFrame(panel, {
+        Name = "RoleManagement",
+        Size = UDim2.new(1, -20, 1, -140),
+        Position = UDim2.new(0, 10, 0, 130)
+    })
+    
+    local roleManagementLabel = Instance.new("TextLabel")
+    roleManagementLabel.Name = "RoleManagementLabel"
+    roleManagementLabel.Parent = roleManagementFrame
+    roleManagementLabel.Size = UDim2.new(1, -20, 0, 30)
+    roleManagementLabel.Position = UDim2.new(0, 10, 0, 10)
+    roleManagementLabel.BackgroundTransparency = 1
+    roleManagementLabel.Text = "Team Role Management"
+    roleManagementLabel.TextColor3 = UI_CONSTANTS.COLORS.TEXT_PRIMARY
+    roleManagementLabel.TextScaled = true
+    roleManagementLabel.Font = UI_CONSTANTS.FONTS.HEADER
+    roleManagementLabel.TextXAlignment = Enum.TextXAlignment.Left
+    
+    return panel
+end
+
+local function createAssetsPanel(parent)
+    local panel = createRoundedFrame(parent, {
+        Name = "AssetsPanel",
+        Size = UDim2.new(1, -20, 1, -80),
+        Position = UDim2.new(0, 10, 0, 70)
+    })
+    
+    -- Title
+    local titleLabel = Instance.new("TextLabel")
+    titleLabel.Name = "TitleLabel"
+    titleLabel.Parent = panel
+    titleLabel.Size = UDim2.new(1, -20, 0, 40)
+    titleLabel.Position = UDim2.new(0, 10, 0, 10)
+    titleLabel.BackgroundTransparency = 1
+    titleLabel.Text = "🎯 Asset Lock Management"
+    titleLabel.TextColor3 = UI_CONSTANTS.COLORS.TEXT_PRIMARY
+    titleLabel.TextScaled = true
+    titleLabel.Font = UI_CONSTANTS.FONTS.HEADER
+    titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+    
+    -- Currently Locked Assets
+    local lockedFrame = createRoundedFrame(panel, {
+        Name = "LockedAssets",
+        Size = UDim2.new(1, -20, 0, 200),
+        Position = UDim2.new(0, 10, 0, 60)
+    })
+    
+    local lockedLabel = Instance.new("TextLabel")
+    lockedLabel.Name = "LockedLabel"
+    lockedLabel.Parent = lockedFrame
+    lockedLabel.Size = UDim2.new(1, -20, 0, 30)
+    lockedLabel.Position = UDim2.new(0, 10, 0, 10)
+    lockedLabel.BackgroundTransparency = 1
+    lockedLabel.Text = "Currently Locked Assets"
+    lockedLabel.TextColor3 = UI_CONSTANTS.COLORS.TEXT_PRIMARY
+    lockedLabel.TextScaled = true
+    lockedLabel.Font = UI_CONSTANTS.FONTS.MAIN
+    lockedLabel.TextXAlignment = Enum.TextXAlignment.Left
+    
+    -- Asset Actions
+    local actionsFrame = createRoundedFrame(panel, {
+        Name = "AssetActions",
+        Size = UDim2.new(1, -20, 0, 80),
+        Position = UDim2.new(0, 10, 0, 270)
+    })
+    
+    local actionsLabel = Instance.new("TextLabel")
+    actionsLabel.Name = "ActionsLabel"
+    actionsLabel.Parent = actionsFrame
+    actionsLabel.Size = UDim2.new(1, -20, 0, 30)
+    actionsLabel.Position = UDim2.new(0, 10, 0, 10)
+    actionsLabel.BackgroundTransparency = 1
+    actionsLabel.Text = "Asset Actions"
+    actionsLabel.TextColor3 = UI_CONSTANTS.COLORS.TEXT_PRIMARY
+    actionsLabel.TextScaled = true
+    actionsLabel.Font = UI_CONSTANTS.FONTS.MAIN
+    actionsLabel.TextXAlignment = Enum.TextXAlignment.Left
+    
+    local lockSelectedButton = createStyledButton(actionsFrame, {
+        Name = "LockSelectedButton",
+        Text = "🔒 Lock Selected",
+        Size = UDim2.new(0, 140, 0, 30),
+        Position = UDim2.new(0, 10, 0, 40),
+        BackgroundColor3 = UI_CONSTANTS.COLORS.ACCENT_BLUE
+    })
+    
+    local unlockAllButton = createStyledButton(actionsFrame, {
+        Name = "UnlockAllButton", 
+        Text = "🔓 Unlock My Assets",
+        Size = UDim2.new(0, 140, 0, 30),
+        Position = UDim2.new(0, 160, 0, 40),
+        BackgroundColor3 = UI_CONSTANTS.COLORS.ACCENT_MAGENTA
+    })
+    
+    -- Conflict Status
+    local conflictFrame = createRoundedFrame(panel, {
+        Name = "ConflictStatus",
+        Size = UDim2.new(1, -20, 1, -370),
+        Position = UDim2.new(0, 10, 0, 360)
+    })
+    
+    local conflictLabel = Instance.new("TextLabel")
+    conflictLabel.Name = "ConflictLabel"
+    conflictLabel.Parent = conflictFrame
+    conflictLabel.Size = UDim2.new(1, -20, 0, 30)
+    conflictLabel.Position = UDim2.new(0, 10, 0, 10)
+    conflictLabel.BackgroundTransparency = 1
+    conflictLabel.Text = "Edit Conflicts"
+    conflictLabel.TextColor3 = UI_CONSTANTS.COLORS.TEXT_PRIMARY
+    conflictLabel.TextScaled = true
+    conflictLabel.Font = UI_CONSTANTS.FONTS.MAIN
+    conflictLabel.TextXAlignment = Enum.TextXAlignment.Left
+    
+    return panel
+end
+
+local function createSettingsPanel(parent)
+    local panel = createRoundedFrame(parent, {
+        Name = "SettingsPanel",
+        Size = UDim2.new(1, -20, 1, -80),
+        Position = UDim2.new(0, 10, 0, 70)
+    })
+    
+    -- Title
+    local titleLabel = Instance.new("TextLabel")
+    titleLabel.Name = "TitleLabel"
+    titleLabel.Parent = panel
+    titleLabel.Size = UDim2.new(1, -20, 0, 40)
+    titleLabel.Position = UDim2.new(0, 10, 0, 10)
+    titleLabel.BackgroundTransparency = 1
+    titleLabel.Text = "⚙️ Plugin Settings"
+    titleLabel.TextColor3 = UI_CONSTANTS.COLORS.TEXT_PRIMARY
+    titleLabel.TextScaled = true
+    titleLabel.Font = UI_CONSTANTS.FONTS.HEADER
+    titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+    
+    -- Notification Settings
+    local notificationFrame = createRoundedFrame(panel, {
+        Name = "NotificationSettings",
+        Size = UDim2.new(1, -20, 0, 100),
+        Position = UDim2.new(0, 10, 0, 60)
+    })
+    
+    local notificationLabel = Instance.new("TextLabel")
+    notificationLabel.Name = "NotificationLabel"
+    notificationLabel.Parent = notificationFrame
+    notificationLabel.Size = UDim2.new(1, -20, 0, 30)
+    notificationLabel.Position = UDim2.new(0, 10, 0, 10)
+    notificationLabel.BackgroundTransparency = 1
+    notificationLabel.Text = "Notification Settings"
+    notificationLabel.TextColor3 = UI_CONSTANTS.COLORS.TEXT_PRIMARY
+    notificationLabel.TextScaled = true
+    notificationLabel.Font = UI_CONSTANTS.FONTS.MAIN
+    notificationLabel.TextXAlignment = Enum.TextXAlignment.Left
+    
+    local enableNotificationsButton = createStyledButton(notificationFrame, {
+        Name = "EnableNotificationsButton",
+        Text = "✅ Notifications Enabled",
+        Size = UDim2.new(0, 180, 0, 30),
+        Position = UDim2.new(0, 10, 0, 50),
+        BackgroundColor3 = UI_CONSTANTS.COLORS.SUCCESS_GREEN
+    })
+    
+    -- Connection Settings
+    local connectionFrame = createRoundedFrame(panel, {
+        Name = "ConnectionSettings",
+        Size = UDim2.new(1, -20, 0, 100),
+        Position = UDim2.new(0, 10, 0, 170)
+    })
+    
+    local connectionLabel = Instance.new("TextLabel")
+    connectionLabel.Name = "ConnectionLabel"
+    connectionLabel.Parent = connectionFrame
+    connectionLabel.Size = UDim2.new(1, -20, 0, 30)
+    connectionLabel.Position = UDim2.new(0, 10, 0, 10)
+    connectionLabel.BackgroundTransparency = 1
+    connectionLabel.Text = "Connection Monitoring"
+    connectionLabel.TextColor3 = UI_CONSTANTS.COLORS.TEXT_PRIMARY
+    connectionLabel.TextScaled = true
+    connectionLabel.Font = UI_CONSTANTS.FONTS.MAIN
+    connectionLabel.TextXAlignment = Enum.TextXAlignment.Left
+    
+    local monitoringButton = createStyledButton(connectionFrame, {
+        Name = "MonitoringButton",
+        Text = "✅ Monitoring Active",
+        Size = UDim2.new(0, 160, 0, 30),
+        Position = UDim2.new(0, 10, 0, 50),
+        BackgroundColor3 = UI_CONSTANTS.COLORS.SUCCESS_GREEN
+    })
+    
+    -- Plugin Info
+    local infoFrame = createRoundedFrame(panel, {
+        Name = "PluginInfo",
+        Size = UDim2.new(1, -20, 1, -290),
+        Position = UDim2.new(0, 10, 0, 280)
+    })
+    
+    local infoLabel = Instance.new("TextLabel")
+    infoLabel.Name = "InfoLabel"
+    infoLabel.Parent = infoFrame
+    infoLabel.Size = UDim2.new(1, -20, 0, 30)
+    infoLabel.Position = UDim2.new(0, 10, 0, 10)
+    infoLabel.BackgroundTransparency = 1
+    infoLabel.Text = "Plugin Information"
+    infoLabel.TextColor3 = UI_CONSTANTS.COLORS.TEXT_PRIMARY
+    infoLabel.TextScaled = true
+    infoLabel.Font = UI_CONSTANTS.FONTS.MAIN
+    infoLabel.TextXAlignment = Enum.TextXAlignment.Left
+    
+    local versionLabel = Instance.new("TextLabel")
+    versionLabel.Name = "VersionLabel"
+    versionLabel.Parent = infoFrame
+    versionLabel.Size = UDim2.new(1, -20, 0, 20)
+    versionLabel.Position = UDim2.new(0, 10, 0, 50)
+    versionLabel.BackgroundTransparency = 1
+    versionLabel.Text = "Version: 1.0.0 (Compliance Mode)"
+    versionLabel.TextColor3 = UI_CONSTANTS.COLORS.TEXT_SECONDARY
+    versionLabel.TextScaled = true
+    versionLabel.Font = UI_CONSTANTS.FONTS.MAIN
+    versionLabel.TextXAlignment = Enum.TextXAlignment.Left
     
     return panel
 end
@@ -260,6 +576,25 @@ local function createNotificationsPanel(parent)
     complianceNote.TextXAlignment = Enum.TextXAlignment.Left
     complianceNote.TextYAlignment = Enum.TextYAlignment.Top
     
+    -- Recent Notifications
+    local recentFrame = createRoundedFrame(panel, {
+        Name = "RecentNotifications",
+        Size = UDim2.new(1, -20, 1, -140),
+        Position = UDim2.new(0, 10, 0, 130)
+    })
+    
+    local recentLabel = Instance.new("TextLabel")
+    recentLabel.Name = "RecentLabel"
+    recentLabel.Parent = recentFrame
+    recentLabel.Size = UDim2.new(1, -20, 0, 30)
+    recentLabel.Position = UDim2.new(0, 10, 0, 10)
+    recentLabel.BackgroundTransparency = 1
+    recentLabel.Text = "Recent Activity"
+    recentLabel.TextColor3 = UI_CONSTANTS.COLORS.TEXT_PRIMARY
+    recentLabel.TextScaled = true
+    recentLabel.Font = UI_CONSTANTS.FONTS.MAIN
+    recentLabel.TextXAlignment = Enum.TextXAlignment.Left
+    
     return panel
 end
 
@@ -283,14 +618,26 @@ function UIManager.initialize(widget, constants)
     
     -- Create content panels
     contentPanels.overview = createOverviewPanel(mainFrame)
+    contentPanels.permissions = createPermissionsPanel(mainFrame)
+    contentPanels.assets = createAssetsPanel(mainFrame)
     contentPanels.notifications = createNotificationsPanel(mainFrame)
+    contentPanels.settings = createSettingsPanel(mainFrame)
     
     -- Hide all panels except overview
     for id, panel in pairs(contentPanels) do
         panel.Visible = (id == currentTab)
     end
     
-    print("[TCE] UI initialized with compliant design")
+    print("[TCE] UI initialized with all panels - compliant design")
+end
+
+function UIManager.setModuleReferences(modules)
+    PermissionManager = modules.PermissionManager
+    AssetLockManager = modules.AssetLockManager
+    ConnectionMonitor = modules.ConnectionMonitor
+    NotificationManager = modules.NotificationManager
+    
+    print("[TCE] UI module references set")
 end
 
 function UIManager.switchTab(tabId)
@@ -312,7 +659,51 @@ end
 
 function UIManager.refresh()
     print("[TCE] Refreshing UI...")
-    -- Update dynamic content
+    -- Update dynamic content based on current tab
+    if currentTab == "overview" then
+        UIManager.refreshOverview()
+    elseif currentTab == "permissions" then
+        UIManager.refreshPermissions()
+    elseif currentTab == "assets" then
+        UIManager.refreshAssets()
+    end
+end
+
+function UIManager.refreshOverview()
+    if ConnectionMonitor then
+        local status = ConnectionMonitor.getConnectionStatus()
+        UIManager.updateConnectionStatus(status.status, status.color)
+    end
+end
+
+function UIManager.refreshPermissions()
+    if PermissionManager and contentPanels.permissions then
+        -- Update current user role display
+        local myRoleFrame = contentPanels.permissions:FindFirstChild("MyRole")
+        if myRoleFrame then
+            local roleLabel = myRoleFrame:FindFirstChild("MyRoleLabel")
+            local permissionsLabel = myRoleFrame:FindFirstChild("MyPermissionsLabel")
+            
+            if roleLabel and PermissionManager.getCurrentUserRole then
+                local userRole = PermissionManager.getCurrentUserRole()
+                roleLabel.Text = "Your Role: " .. (userRole or "Unknown")
+            end
+        end
+    end
+end
+
+function UIManager.refreshAssets()
+    if AssetLockManager and contentPanels.assets then
+        -- Update locked assets display
+        local lockedFrame = contentPanels.assets:FindFirstChild("LockedAssets")
+        if lockedFrame and AssetLockManager.getLockedAssets then
+            local lockedAssets = AssetLockManager.getLockedAssets()
+            local lockedLabel = lockedFrame:FindFirstChild("LockedLabel")
+            if lockedLabel then
+                lockedLabel.Text = "Currently Locked Assets (" .. #lockedAssets .. ")"
+            end
+        end
+    end
 end
 
 function UIManager.cleanup()
@@ -331,6 +722,7 @@ function UIManager.updateConnectionStatus(status, color)
         if statusFrame then
             local statusLabel = statusFrame:FindFirstChild("StatusLabel")
             local statusDot = statusFrame:FindFirstChild("StatusDot")
+            local qualityLabel = statusFrame:FindFirstChild("QualityLabel")
             
             if statusLabel then
                 statusLabel.Text = "Team Create: " .. status
@@ -338,6 +730,10 @@ function UIManager.updateConnectionStatus(status, color)
             
             if statusDot then
                 statusDot.BackgroundColor3 = color
+            end
+            
+            if qualityLabel then
+                qualityLabel.Text = "Quality: " .. (status == "Connected" and "Excellent" or "Poor")
             end
         end
     end

@@ -116,6 +116,20 @@ local function initializePlugin()
     NotificationManager.initialize(pluginState) -- Compliant notifications only
     ConflictResolver.initialize(pluginState)
     
+    -- Set up module cross-references for UI integration
+    local moduleRefs = {
+        PermissionManager = PermissionManager,
+        AssetLockManager = AssetLockManager,
+        ConnectionMonitor = ConnectionMonitor,
+        NotificationManager = NotificationManager
+    }
+    UIManager.setModuleReferences(moduleRefs)
+    
+    -- Set up module cross-references for backend integration
+    AssetLockManager.setPermissionManager(PermissionManager)
+    ConflictResolver.setAssetLockManager(AssetLockManager)
+    ConflictResolver.setPermissionManager(PermissionManager)
+    
     -- Setup plugin toolbar
     local toolbar = plugin:CreateToolbar("Team Create Enhancer")
     local toggleButton = toolbar:CreateButton(
@@ -137,7 +151,12 @@ local function initializePlugin()
     end)
     
     -- Auto-enable if in Team Create
-    if StudioService:GetCurrentTeamCreateSettings() then
+    local teamCreateSettings = nil
+    local success = pcall(function()
+        teamCreateSettings = StudioService:GetCurrentTeamCreateSettings()
+    end)
+    
+    if success and teamCreateSettings then
         dockWidget.Enabled = true
         pluginState.isEnabled = true
         ConnectionMonitor.startMonitoring()
@@ -146,6 +165,9 @@ local function initializePlugin()
         if pluginState.complianceMode then
             NotificationManager.showComplianceNotice()
         end
+        
+        -- Initial UI refresh
+        UIManager.refresh()
     end
     
     print("[TCE] Plugin initialized successfully!")

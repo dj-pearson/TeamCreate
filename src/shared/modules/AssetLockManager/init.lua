@@ -529,4 +529,10 @@ function AssetLockManager.cleanup()
     print("[TCE] Asset Lock Manager cleaned up")
 end
 
+-- Module cross-reference methods
+function AssetLockManager.setPermissionManager(permissionManagerRef)
+    PermissionManager = permissionManagerRef
+    print("[TCE] AssetLockManager: PermissionManager reference set")
+end
+
 return AssetLockManager 
