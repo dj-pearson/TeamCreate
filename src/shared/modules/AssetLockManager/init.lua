@@ -2,6 +2,17 @@
 -- Handles asset locking system with visual indicators for conflict prevention
 -- COMPLIANCE: No external dependencies, Studio-only operations
 
+-- Type imports
+local Types = require(script.Parent.Parent.types)
+type UserId = Types.UserId
+type RoleName = Types.RoleName
+type InstancePath = Types.InstancePath
+type LockInfo = Types.LockInfo
+type LockStats = Types.LockStats
+type PluginState = Types.PluginState
+type LockCallback = Types.LockCallback
+type LockExportData = Types.LockExportData
+
 --[[
 AssetLockManager
 ================
@@ -20,11 +31,11 @@ local Selection = game:GetService("Selection")
 local TweenService = game:GetService("TweenService")
 
 -- Constants
-local LOCK_TIMEOUT = 300 -- 5 minutes before auto-unlock
-local VISUAL_UPDATE_INTERVAL = 1 -- Update visuals every second
+local LOCK_TIMEOUT: number = 300 -- 5 minutes before auto-unlock
+local VISUAL_UPDATE_INTERVAL: number = 1 -- Update visuals every second
 
 -- Lock colors based on user roles
-local LOCK_COLORS = {
+local LOCK_COLORS: {[RoleName]: Color3} = {
     OWNER = Color3.fromHex("#f59e0b"), -- Amber
     ADMIN = Color3.fromHex("#ef4444"), -- Red  
     DEVELOPER = Color3.fromHex("#8b5cf6"), -- Purple
@@ -35,13 +46,13 @@ local LOCK_COLORS = {
 }
 
 -- Local state
-local pluginState = nil
-local assetLocks = {} -- {instancePath: {userId, timestamp, lockType, metadata}}
-local visualIndicators = {} -- {instance: visualObject}
-local lockCallbacks = {}
-local selectionConnection = nil
-local visualUpdateConnection = nil
-local PermissionManager = nil
+local pluginState: PluginState? = nil
+local assetLocks: {[InstancePath]: LockInfo} = {} -- {instancePath: {userId, timestamp, lockType, metadata}}
+local visualIndicators: {[Instance]: any} = {} -- {instance: visualObject}
+local lockCallbacks: {[string]: LockCallback} = {}
+local selectionConnection: RBXScriptConnection? = nil
+local visualUpdateConnection: RBXScriptConnection? = nil
+local PermissionManager: any = nil
 
 -- Asset identification functions
 local function getInstancePath(instance)
@@ -276,7 +287,7 @@ end
 Initializes the AssetLockManager with plugin state.
 @param state table: Plugin state table
 ]]
-function AssetLockManager.initialize(state)
+function AssetLockManager.initialize(state: PluginState): ()
     pluginState = state
     
     -- COMPLIANCE: Load saved lock data
@@ -336,7 +347,7 @@ Locks an asset for the current user.
 @param lockType string: The type of lock (optional)
 @return boolean, string: Success and message
 ]]
-function AssetLockManager.lockAsset(instance, lockType)
+function AssetLockManager.lockAsset(instance: Instance, lockType: string?): (boolean, string)
     if not instance then
         return false, "Invalid instance"
     end
@@ -394,7 +405,7 @@ Unlocks an asset by path for a user.
 @param isAutoUnlock boolean: If true, unlock is automatic (timeout)
 @return boolean, string: Success and message
 ]]
-function AssetLockManager.unlockAsset(instancePath, userId, isAutoUnlock)
+function AssetLockManager.unlockAsset(instancePath: InstancePath, userId: UserId, isAutoUnlock: boolean?): (boolean, string)
     local lockInfo = assetLocks[instancePath]
     
     if not lockInfo then
@@ -442,7 +453,7 @@ Checks if an asset is locked.
 @param instance Instance
 @return boolean, table: True and lockInfo if locked, else false
 ]]
-function AssetLockManager.isAssetLocked(instance)
+function AssetLockManager.isAssetLocked(instance: Instance): (boolean, LockInfo?)
     local instancePath = getInstancePath(instance)
     local lockInfo = assetLocks[instancePath]
     
@@ -457,7 +468,7 @@ end
 Returns a table of all currently locked assets (not expired).
 @return table: {path = lockInfo}
 ]]
-function AssetLockManager.getLockedAssets()
+function AssetLockManager.getLockedAssets(): {[InstancePath]: LockInfo}
     local locks = {}
     for path, lockInfo in pairs(assetLocks) do
         if not isLockExpired(lockInfo) then
@@ -472,7 +483,7 @@ Returns all locks held by a specific user.
 @param userId number
 @return table: {path = lockInfo}
 ]]
-function AssetLockManager.getUserLocks(userId)
+function AssetLockManager.getUserLocks(userId: UserId): {[InstancePath]: LockInfo}
     local userLocks = {}
     for path, lockInfo in pairs(assetLocks) do
         if lockInfo.userId == userId and not isLockExpired(lockInfo) then
@@ -487,7 +498,7 @@ Registers a callback for lock events.
 @param id string: Unique callback id
 @param callback function
 ]]
-function AssetLockManager.registerCallback(id, callback)
+function AssetLockManager.registerCallback(id: string, callback: LockCallback): ()
     lockCallbacks[id] = callback
 end
 
@@ -495,7 +506,7 @@ end
 Unregisters a lock event callback by id.
 @param id string
 ]]
-function AssetLockManager.unregisterCallback(id)
+function AssetLockManager.unregisterCallback(id: string): ()
     lockCallbacks[id] = nil
 end
 
@@ -503,7 +514,7 @@ end
 Returns statistics about current locks.
 @return table: Stats table
 ]]
-function AssetLockManager.getLockStats()
+function AssetLockManager.getLockStats(): LockStats
     local stats = {
         totalLocks = 0,
         locksByUser = {},
@@ -533,7 +544,7 @@ end
 Exports all lock data for backup or migration.
 @return table
 ]]
-function AssetLockManager.exportLocks()
+function AssetLockManager.exportLocks(): LockExportData
     return {
         version = "1.0",
         timestamp = os.time(),
@@ -547,7 +558,7 @@ Imports lock data (merges with current locks).
 @param data table
 @return boolean: True if import was successful
 ]]
-function AssetLockManager.importLocks(data)
+function AssetLockManager.importLocks(data: LockExportData): boolean
     if data.version == "1.0" and data.locks then
         -- Merge imported locks
         for path, lockInfo in pairs(data.locks) do
@@ -567,7 +578,7 @@ end
 --[[
 Cleans up the AssetLockManager (disconnects, clears visuals, saves state).
 ]]
-function AssetLockManager.cleanup()
+function AssetLockManager.cleanup(): ()
     -- Disconnect connections
     if selectionConnection then
         selectionConnection:Disconnect()
@@ -597,7 +608,7 @@ end
 Sets the PermissionManager reference for cross-module integration.
 @param permissionManagerRef table
 ]]
-function AssetLockManager.setPermissionManager(permissionManagerRef)
+function AssetLockManager.setPermissionManager(permissionManagerRef: any): ()
     PermissionManager = permissionManagerRef
     print("[TCE] AssetLockManager: PermissionManager reference set")
 end

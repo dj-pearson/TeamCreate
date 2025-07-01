@@ -2,6 +2,25 @@
 -- Handles basic conflict resolution with warnings and temporary locks
 -- COMPLIANCE: No external dependencies, Studio-only operations
 
+-- Type imports
+local Types = require(script.Parent.Parent.types)
+type UserId = Types.UserId
+type InstancePath = Types.InstancePath
+type ConflictInfo = Types.ConflictInfo
+type ConflictStats = Types.ConflictStats
+type PluginState = Types.PluginState
+type ConflictCallback = Types.ConflictCallback
+type ConflictExportData = Types.ConflictExportData
+
+--[[
+ConflictResolver
+================
+Manages edit conflicts when multiple users edit the same assets simultaneously.
+Provides APIs for conflict detection, warning UI, and resolution strategies.
+Integrates with AssetLockManager for conflict prevention via locks.
+All conflict data is stored using plugin settings for compliance.
+]]
+
 local ConflictResolver = {}
 
 -- Services
@@ -10,17 +29,17 @@ local Players = game:GetService("Players")
 local Selection = game:GetService("Selection")
 
 -- Constants
-local CONFLICT_WARNING_DURATION = 5 -- seconds
-local AUTO_RESOLVE_TIMEOUT = 30 -- seconds
-local EDIT_DETECTION_DELAY = 1 -- second
+local CONFLICT_WARNING_DURATION: number = 5 -- seconds
+local AUTO_RESOLVE_TIMEOUT: number = 30 -- seconds
+local EDIT_DETECTION_DELAY: number = 1 -- second
 
 -- Local state
-local pluginState = nil
-local activeConflicts = {}
-local editTimestamps = {}
-local conflictCallbacks = {}
-local AssetLockManager = nil
-local PermissionManager = nil
+local pluginState: PluginState? = nil
+local activeConflicts: {[number]: ConflictInfo} = {}
+local editTimestamps: {[InstancePath]: any} = {}
+local conflictCallbacks: {[string]: ConflictCallback} = {}
+local AssetLockManager: any = nil
+local PermissionManager: any = nil
 
 -- Utility functions
 local function getInstancePath(instance)
@@ -330,8 +349,12 @@ local function resolveConflict(conflictId, resolution)
     end)
 end
 
--- Public API
-function ConflictResolver.initialize(state)
+--[[
+Initializes the ConflictResolver with plugin state.
+Sets up selection change monitoring for conflict detection.
+@param state table: Plugin state table
+]]
+function ConflictResolver.initialize(state: PluginState): ()
     pluginState = state
     
     -- COMPLIANCE: Load saved conflict data
@@ -380,15 +403,28 @@ function ConflictResolver.initialize(state)
     print("[TCE] Conflict Resolver initialized")
 end
 
-function ConflictResolver.registerCallback(id, callback)
+--[[
+Registers a callback for conflict events.
+@param id string: Unique callback id
+@param callback function
+]]
+function ConflictResolver.registerCallback(id: string, callback: ConflictCallback): ()
     conflictCallbacks[id] = callback
 end
 
-function ConflictResolver.unregisterCallback(id)
+--[[
+Unregisters a conflict event callback by id.
+@param id string
+]]
+function ConflictResolver.unregisterCallback(id: string): ()
     conflictCallbacks[id] = nil
 end
 
-function ConflictResolver.getActiveConflicts()
+--[[
+Returns all currently active conflicts.
+@return table: {id = conflictInfo}
+]]
+function ConflictResolver.getActiveConflicts(): {[number]: ConflictInfo}
     local active = {}
     for id, conflict in pairs(activeConflicts) do
         if conflict.status == "active" then
@@ -398,11 +434,21 @@ function ConflictResolver.getActiveConflicts()
     return active
 end
 
-function ConflictResolver.resolveConflict(conflictId, resolution)
+--[[
+Resolves a conflict by id with a specific resolution method.
+@param conflictId number
+@param resolution string: Resolution method
+@return boolean: True if successful
+]]
+function ConflictResolver.resolveConflict(conflictId: number, resolution: string): boolean
     return resolveConflict(conflictId, resolution)
 end
 
-function ConflictResolver.forceResolveAllConflicts()
+--[[
+Forces resolution of all active conflicts.
+@return number: Number of conflicts resolved
+]]
+function ConflictResolver.forceResolveAllConflicts(): number
     local resolved = 0
     for id, conflict in pairs(activeConflicts) do
         if conflict.status == "active" then
@@ -413,7 +459,11 @@ function ConflictResolver.forceResolveAllConflicts()
     return resolved
 end
 
-function ConflictResolver.getConflictStats()
+--[[
+Returns statistics about conflicts (active, resolved, total).
+@return table: Stats table
+]]
+function ConflictResolver.getConflictStats(): ConflictStats
     local stats = {
         active = 0,
         resolved = 0,
@@ -432,8 +482,11 @@ function ConflictResolver.getConflictStats()
     return stats
 end
 
--- COMPLIANCE: Export/import using plugin settings only
-function ConflictResolver.exportConflictData()
+--[[
+Exports all conflict data for backup or migration.
+@return table
+]]
+function ConflictResolver.exportConflictData(): ConflictExportData
     return {
         version = "1.0",
         timestamp = os.time(),
@@ -442,7 +495,12 @@ function ConflictResolver.exportConflictData()
     }
 end
 
-function ConflictResolver.importConflictData(data)
+--[[
+Imports conflict data (merges with current conflicts).
+@param data table
+@return boolean: True if import was successful
+]]
+function ConflictResolver.importConflictData(data: ConflictExportData): boolean
     if data.version == "1.0" and data.conflicts then
         activeConflicts = data.conflicts
         saveConflictData()
@@ -452,7 +510,10 @@ function ConflictResolver.importConflictData(data)
     return false
 end
 
-function ConflictResolver.cleanup()
+--[[
+Cleans up the ConflictResolver (resolves all conflicts, saves state, clears callbacks).
+]]
+function ConflictResolver.cleanup(): ()
     -- Force resolve all active conflicts
     ConflictResolver.forceResolveAllConflicts()
     
@@ -465,13 +526,20 @@ function ConflictResolver.cleanup()
     print("[TCE] Conflict Resolver cleaned up")
 end
 
--- Module cross-reference methods
-function ConflictResolver.setAssetLockManager(assetLockManagerRef)
+--[[
+Sets the AssetLockManager reference for cross-module integration.
+@param assetLockManagerRef table
+]]
+function ConflictResolver.setAssetLockManager(assetLockManagerRef: any): ()
     AssetLockManager = assetLockManagerRef
     print("[TCE] ConflictResolver: AssetLockManager reference set")
 end
 
-function ConflictResolver.setPermissionManager(permissionManagerRef)
+--[[
+Sets the PermissionManager reference for cross-module integration.
+@param permissionManagerRef table
+]]
+function ConflictResolver.setPermissionManager(permissionManagerRef: any): ()
     PermissionManager = permissionManagerRef
     print("[TCE] ConflictResolver: PermissionManager reference set")
 end

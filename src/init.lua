@@ -2,6 +2,12 @@
 -- Team Create Enhancement Plugin - Main Entry Point
 -- Rojo/Argon Compatible Structure
 
+-- Type imports
+local Types = require(script.shared.types)
+type PluginState = Types.PluginState
+type UIConstants = Types.UIConstants
+type ModuleReferences = Types.ModuleReferences
+
 local plugin = plugin or getfenv().PluginManager():CreatePlugin()
 
 -- Core Services
@@ -11,11 +17,11 @@ local StudioService = game:GetService("StudioService")
 local ChangeHistoryService = game:GetService("ChangeHistoryService")
 
 -- Plugin Info
-local PLUGIN_NAME = "Team Create Enhancer"
-local PLUGIN_VERSION = "1.0.0"
+local PLUGIN_NAME: string = "Team Create Enhancer"
+local PLUGIN_VERSION: string = "1.0.0"
 
 -- UI Constants based on PRD Style Guide
-local UI_CONSTANTS = {
+local UI_CONSTANTS: UIConstants = {
     COLORS = {
         PRIMARY_BG = Color3.fromHex("#0f111a"),
         SECONDARY_BG = Color3.fromHex("#1a1d29"),
@@ -42,7 +48,7 @@ local UI_CONSTANTS = {
 }
 
 -- Plugin State
-local pluginState = {
+local pluginState: PluginState = {
     isEnabled = false,
     currentUser = Players.LocalPlayer,
     teamCreateSession = nil,
@@ -61,7 +67,7 @@ local NotificationManager = require(script.shared.modules.NotificationManager) -
 local ConflictResolver = require(script.shared.modules.ConflictResolver)
 
 -- Main Plugin GUI
-local dockWidget = plugin:CreateDockWidgetPluginGui(
+local dockWidget: DockWidgetPluginGui = plugin:CreateDockWidgetPluginGui(
     "TeamCreateEnhancer",
     DockWidgetPluginGuiInfo.new(
         Enum.InitialDockState.Left,
@@ -78,7 +84,7 @@ dockWidget.Title = PLUGIN_NAME
 dockWidget.Name = "TeamCreateEnhancer"
 
 -- Compliance Check
-local function verifyCompliance()
+local function verifyCompliance(): boolean
     -- COMPLIANCE: Ensure no external HTTP requests are enabled
     local httpEnabled = game:GetService("HttpService").HttpEnabled
     
@@ -100,7 +106,7 @@ local function verifyCompliance()
 end
 
 -- Initialize Plugin
-local function initializePlugin()
+local function initializePlugin(): ()
     print("[TCE] Initializing Team Create Enhancement Plugin v" .. PLUGIN_VERSION)
     
     -- COMPLIANCE: Verify compliance before starting
@@ -117,7 +123,7 @@ local function initializePlugin()
     ConflictResolver.initialize(pluginState)
     
     -- Set up module cross-references for UI integration
-    local moduleRefs = {
+    local moduleRefs: ModuleReferences = {
         PermissionManager = PermissionManager,
         AssetLockManager = AssetLockManager,
         ConnectionMonitor = ConnectionMonitor,
@@ -174,7 +180,7 @@ local function initializePlugin()
 end
 
 -- COMPLIANCE: Safe cleanup function
-local function cleanup()
+local function cleanup(): ()
     print("[TCE] Cleaning up plugin...")
     ConnectionMonitor.stopMonitoring()
     UIManager.cleanup()
@@ -188,7 +194,7 @@ end
 plugin.Unloading:Connect(cleanup)
 
 -- COMPLIANCE: Error handling wrapper
-local function safeInitialize()
+local function safeInitialize(): ()
     local success, error = pcall(initializePlugin)
     if not success then
         warn("[TCE] Plugin initialization failed:", error)

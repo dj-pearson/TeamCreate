@@ -2,6 +2,15 @@
 -- Handles connection monitoring, auto-recovery, and progress snapshots
 -- COMPLIANCE: No external HTTP requests, Studio-only operations
 
+-- Type imports
+local Types = require(script.Parent.Parent.types)
+type PluginState = Types.PluginState
+type ConnectionStatus = Types.ConnectionStatus
+type SnapshotInfo = Types.SnapshotInfo
+type ConnectionCallback = Types.ConnectionCallback
+type ConnectionStats = Types.ConnectionStats
+type SnapshotExportData = Types.SnapshotExportData
+
 --[[
 ConnectionMonitor
 =================
@@ -19,21 +28,21 @@ local StudioService = game:GetService("StudioService")
 local ChangeHistoryService = game:GetService("ChangeHistoryService")
 
 -- Constants
-local HEARTBEAT_INTERVAL = 5 -- seconds
-local SNAPSHOT_INTERVAL = 300 -- 5 minutes
-local CONNECTION_TIMEOUT = 15 -- seconds
-local MAX_SNAPSHOTS = 10 -- Keep last 10 snapshots
-local RECONNECT_ATTEMPTS = 3
+local HEARTBEAT_INTERVAL: number = 5 -- seconds
+local SNAPSHOT_INTERVAL: number = 300 -- 5 minutes
+local CONNECTION_TIMEOUT: number = 15 -- seconds
+local MAX_SNAPSHOTS: number = 10 -- Keep last 10 snapshots
+local RECONNECT_ATTEMPTS: number = 3
 
 -- Local state
-local pluginState = nil
-local isMonitoring = false
-local heartbeatConnection = nil
-local snapshotConnection = nil
-local lastHeartbeat = 0
-local connectionCallbacks = {}
-local snapshots = {}
-local reconnectAttempts = 0
+local pluginState: PluginState? = nil
+local isMonitoring: boolean = false
+local heartbeatConnection: RBXScriptConnection? = nil
+local snapshotConnection: RBXScriptConnection? = nil
+local lastHeartbeat: number = 0
+local connectionCallbacks: {[string]: ConnectionCallback} = {}
+local snapshots: {SnapshotInfo} = {}
+local reconnectAttempts: number = 0
 
 -- Connection status tracking
 local connectionStatus = {
@@ -327,7 +336,7 @@ end
 Initializes the ConnectionMonitor with plugin state.
 @param state table: Plugin state table
 ]]
-function ConnectionMonitor.initialize(state)
+function ConnectionMonitor.initialize(state: PluginState): ()
     pluginState = state
     lastHeartbeat = os.time()
     
@@ -340,7 +349,7 @@ end
 --[[
 Starts connection monitoring (heartbeat and snapshot loops).
 ]]
-function ConnectionMonitor.startMonitoring()
+function ConnectionMonitor.startMonitoring(): ()
     if isMonitoring then
         return
     end
@@ -360,7 +369,7 @@ end
 --[[
 Stops connection monitoring and saves state.
 ]]
-function ConnectionMonitor.stopMonitoring()
+function ConnectionMonitor.stopMonitoring(): ()
     if not isMonitoring then
         return
     end
@@ -378,7 +387,7 @@ end
 Returns the current connection status and quality.
 @return table: Status info
 ]]
-function ConnectionMonitor.getConnectionStatus()
+function ConnectionMonitor.getConnectionStatus(): ConnectionStatus
     return {
         isConnected = connectionStatus.isConnected,
         quality = connectionStatus.quality,
@@ -394,7 +403,7 @@ end
 Returns the list of saved snapshots (metadata only).
 @return table: Snapshots
 ]]
-function ConnectionMonitor.getSnapshots()
+function ConnectionMonitor.getSnapshots(): {SnapshotInfo}
     return snapshots
 end
 
@@ -402,7 +411,7 @@ end
 Creates a manual progress snapshot.
 @return table: Snapshot metadata
 ]]
-function ConnectionMonitor.createManualSnapshot()
+function ConnectionMonitor.createManualSnapshot(): SnapshotInfo
     return createSnapshot()
 end
 
@@ -411,7 +420,7 @@ Restores a snapshot by version id.
 @param snapshotId number
 @return boolean: True if successful
 ]]
-function ConnectionMonitor.restoreSnapshot(snapshotId)
+function ConnectionMonitor.restoreSnapshot(snapshotId: number): boolean
     return restoreSnapshot(snapshotId)
 end
 
@@ -420,7 +429,7 @@ Registers a callback for connection events.
 @param id string: Unique callback id
 @param callback function
 ]]
-function ConnectionMonitor.registerCallback(id, callback)
+function ConnectionMonitor.registerCallback(id: string, callback: ConnectionCallback): ()
     connectionCallbacks[id] = callback
 end
 
@@ -428,7 +437,7 @@ end
 Unregisters a connection event callback by id.
 @param id string
 ]]
-function ConnectionMonitor.unregisterCallback(id)
+function ConnectionMonitor.unregisterCallback(id: string): ()
     connectionCallbacks[id] = nil
 end
 
@@ -436,7 +445,7 @@ end
 Forces a reconnection attempt.
 @return boolean: True if successful
 ]]
-function ConnectionMonitor.forceReconnect()
+function ConnectionMonitor.forceReconnect(): boolean
     reconnectAttempts = 0
     return attemptReconnection()
 end
@@ -445,7 +454,7 @@ end
 Returns the list of currently active users in Team Create.
 @return table: List of users
 ]]
-function ConnectionMonitor.getActiveUsers()
+function ConnectionMonitor.getActiveUsers(): {any}
     return connectionStatus.teamCreateUsers
 end
 
@@ -453,7 +462,7 @@ end
 Exports all snapshot metadata for backup or migration.
 @return table
 ]]
-function ConnectionMonitor.exportSnapshots()
+function ConnectionMonitor.exportSnapshots(): SnapshotExportData
     return {
         version = "1.0",
         exported = os.time(),
@@ -467,7 +476,7 @@ Imports snapshot metadata (merges with current snapshots).
 @param data table
 @return boolean: True if import was successful
 ]]
-function ConnectionMonitor.importSnapshots(data)
+function ConnectionMonitor.importSnapshots(data: SnapshotExportData): boolean
     if data.version == "1.0" and data.snapshots then
         -- Merge imported snapshots (metadata only)
         for _, snapshot in ipairs(data.snapshots) do
@@ -490,7 +499,7 @@ end
 Returns the current connection quality string.
 @return string: Quality
 ]]
-function ConnectionMonitor.getConnectionQuality()
+function ConnectionMonitor.getConnectionQuality(): string
     return connectionStatus.quality
 end
 
@@ -498,7 +507,7 @@ end
 Returns true if the connection is stable (Excellent/Good).
 @return boolean
 ]]
-function ConnectionMonitor.isStable()
+function ConnectionMonitor.isStable(): boolean
     return connectionStatus.quality == "Excellent" or connectionStatus.quality == "Good"
 end
 
@@ -506,7 +515,7 @@ end
 Returns statistics about connection and monitoring.
 @return table: Stats table
 ]]
-function ConnectionMonitor.getStats()
+function ConnectionMonitor.getStats(): ConnectionStats
     return {
         totalSnapshots = #snapshots,
         connectionUptime = os.time() - lastHeartbeat,
@@ -519,7 +528,7 @@ end
 --[[
 Cleans up the ConnectionMonitor (stops monitoring, saves state, clears callbacks).
 ]]
-function ConnectionMonitor.cleanup()
+function ConnectionMonitor.cleanup(): ()
     stopMonitoring()
     
     -- Save final state

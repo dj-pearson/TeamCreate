@@ -1,6 +1,15 @@
 -- src/shared/modules/UIManager/init.lua
 -- Handles all UI creation and management for the Team Create Enhancement Plugin
 
+--[[
+UIManager
+=========
+Manages all UI components for Team Create Enhancer plugin.
+Provides APIs for creating panels, managing tabs, and updating dynamic content.
+Follows the PRD style guide with modern dark theme and responsive design.
+Integrates with all backend modules for live data updates.
+]]
+
 local UIManager = {}
 
 -- Services
@@ -672,6 +681,12 @@ local function createProgressPanel(parent)
 end
 
 -- Public API
+--[[
+Initializes the UIManager with dock widget and UI constants.
+Creates all UI panels and sets up the tab system.
+@param widget DockWidgetPluginGui: The plugin dock widget
+@param constants table: UI constants (colors, fonts, sizes)
+]]
 function UIManager.initialize(widget, constants)
     dockWidget = widget
     UI_CONSTANTS = constants
@@ -705,6 +720,10 @@ function UIManager.initialize(widget, constants)
     print("[TCE] UI initialized with all panels - compliant design")
 end
 
+--[[
+Sets module references for cross-integration with backend systems.
+@param modules table: Table of module references
+]]
 function UIManager.setModuleReferences(modules)
     PermissionManager = modules.PermissionManager
     AssetLockManager = modules.AssetLockManager
@@ -714,6 +733,10 @@ function UIManager.setModuleReferences(modules)
     print("[TCE] UI module references set")
 end
 
+--[[
+Switches to a specific tab and updates appearance.
+@param tabId string: The tab identifier to switch to
+]]
 function UIManager.switchTab(tabId)
     -- Update tab appearance
     for id, button in pairs(tabButtons) do
@@ -731,6 +754,9 @@ function UIManager.switchTab(tabId)
     print("[TCE] Switched to tab:", tabId)
 end
 
+--[[
+Refreshes UI content based on current tab and backend data.
+]]
 function UIManager.refresh()
     print("[TCE] Refreshing UI...")
     if currentTab == "overview" then
@@ -744,6 +770,9 @@ function UIManager.refresh()
     end
 end
 
+--[[
+Refreshes the Overview panel with live connection and user data.
+]]
 function UIManager.refreshOverview()
     if ConnectionMonitor then
         local status = ConnectionMonitor.getConnectionStatus()
@@ -751,6 +780,9 @@ function UIManager.refreshOverview()
     end
 end
 
+--[[
+Refreshes the Permissions panel with current user role and team data.
+]]
 function UIManager.refreshPermissions()
     if PermissionManager and contentPanels.permissions then
         -- Update current user role display
@@ -767,6 +799,9 @@ function UIManager.refreshPermissions()
     end
 end
 
+--[[
+Refreshes the Assets panel with current lock information.
+]]
 function UIManager.refreshAssets()
     if AssetLockManager and contentPanels.assets then
         -- Update locked assets display
@@ -781,16 +816,11 @@ function UIManager.refreshAssets()
     end
 end
 
-function UIManager.cleanup()
-    if mainFrame then
-        mainFrame:Destroy()
-        mainFrame = nil
-    end
-    contentPanels = {}
-    tabButtons = {}
-    print("[TCE] UI cleaned up")
-end
-
+--[[
+Updates the connection status display in the Overview panel.
+@param status string: Connection status
+@param color Color3: Status indicator color
+]]
 function UIManager.updateConnectionStatus(status, color)
     if contentPanels.overview then
         local statusFrame = contentPanels.overview:FindFirstChild("ConnectionStatus")
@@ -814,6 +844,10 @@ function UIManager.updateConnectionStatus(status, color)
     end
 end
 
+--[[
+Updates the active user list display in the Overview panel.
+@param users table: List of active users
+]]
 function UIManager.updateUserList(users)
     if contentPanels.overview then
         local usersFrame = contentPanels.overview:FindFirstChild("ActiveUsers")
@@ -826,12 +860,18 @@ function UIManager.updateUserList(users)
     end
 end
 
+--[[
+Adds an activity log entry to the UI.
+@param message string: Activity message
+]]
 function UIManager.addActivityLog(message)
     -- Add to internal activity feed
     print("[TCE] Activity:", message)
 end
 
--- COMPLIANCE: Show compliance notice
+--[[
+Shows a compliance mode notice to the user.
+]]
 function UIManager.showComplianceNotice()
     local notice = Instance.new("ScreenGui")
     notice.Name = "ComplianceNotice"
@@ -870,6 +910,19 @@ function UIManager.showComplianceNotice()
     
     -- Auto-close after 5 seconds
     game:GetService("Debris"):AddItem(notice, 5)
+end
+
+--[[
+Cleans up the UIManager (destroys UI, clears references).
+]]
+function UIManager.cleanup()
+    if mainFrame then
+        mainFrame:Destroy()
+        mainFrame = nil
+    end
+    contentPanels = {}
+    tabButtons = {}
+    print("[TCE] UI cleaned up")
 end
 
 return UIManager 

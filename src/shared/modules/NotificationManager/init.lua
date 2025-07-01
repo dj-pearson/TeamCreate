@@ -1,6 +1,23 @@
 -- src/shared/modules/NotificationManager/init.lua
 -- COMPLIANCE: Internal notifications only - no external HTTP requests
 
+-- Type imports
+local Types = require(script.Parent.Parent.types)
+type NotificationType = Types.NotificationType
+type NotificationInfo = Types.NotificationInfo
+type NotificationTypeInfo = Types.NotificationTypeInfo
+type PluginState = Types.PluginState
+type NotificationCallback = Types.NotificationCallback
+
+--[[
+NotificationManager
+===================
+Manages internal notifications for Team Create Enhancer plugin.
+Provides APIs for creating notifications, tracking events, and Studio integration.
+Uses Studio's native notification system for compliance (no external webhooks).
+All notification data is stored using plugin settings.
+]]
+
 local NotificationManager = {}
 
 -- Services
@@ -9,9 +26,9 @@ local RunService = game:GetService("RunService")
 local StarterGui = game:GetService("StarterGui")
 
 -- Constants
-local MAX_NOTIFICATIONS = 50 -- Keep last 50 notifications
-local NOTIFICATION_DURATION = 5 -- seconds
-local NOTIFICATION_TYPES = {
+local MAX_NOTIFICATIONS: number = 50 -- Keep last 50 notifications
+local NOTIFICATION_DURATION: number = 5 -- seconds
+local NOTIFICATION_TYPES: {[NotificationType]: NotificationTypeInfo} = {
     INFO = {color = Color3.fromHex("#3b82f6"), icon = "ℹ️"},
     SUCCESS = {color = Color3.fromHex("#10b981"), icon = "✅"},
     WARNING = {color = Color3.fromHex("#f59e0b"), icon = "⚠️"},
@@ -20,10 +37,10 @@ local NOTIFICATION_TYPES = {
 }
 
 -- Local state
-local pluginState = nil
-local notifications = {}
-local notificationCallbacks = {}
-local isEnabled = true
+local pluginState: PluginState? = nil
+local notifications: {NotificationInfo} = {}
+local notificationCallbacks: {[string]: NotificationCallback} = {}
+local isEnabled: boolean = true
 
 -- COMPLIANCE: Internal notification system only
 local function createNotification(title, message, notificationType, duration)
@@ -80,7 +97,10 @@ local function showStudioNotification(notification)
     end
 end
 
--- Event templates (internal only)
+--[[
+Logs a user join event with internal notification.
+@param player Player
+]]
 local function logUserJoinEvent(player)
     createNotification(
         "User Joined",
@@ -90,6 +110,10 @@ local function logUserJoinEvent(player)
     )
 end
 
+--[[
+Logs a user leave event with internal notification.
+@param player Player
+]]
 local function logUserLeaveEvent(player)
     createNotification(
         "User Left", 
@@ -99,6 +123,10 @@ local function logUserLeaveEvent(player)
     )
 end
 
+--[[
+Logs an asset lock event with internal notification.
+@param lockInfo table
+]]
 local function logAssetLockEvent(lockInfo)
     createNotification(
         "Asset Locked",
@@ -108,6 +136,11 @@ local function logAssetLockEvent(lockInfo)
     )
 end
 
+--[[
+Logs a connection status change event with internal notification.
+@param status string
+@param quality string
+]]
 local function logConnectionStatusEvent(status, quality)
     local notifType = "INFO"
     if status == "Disconnected" then
@@ -126,6 +159,11 @@ local function logConnectionStatusEvent(status, quality)
     )
 end
 
+--[[
+Logs an error event with internal notification.
+@param errorType string
+@param errorMessage string
+]]
 local function logErrorEvent(errorType, errorMessage)
     createNotification(
         "Plugin Error",
@@ -135,8 +173,12 @@ local function logErrorEvent(errorType, errorMessage)
     )
 end
 
--- Public API
-function NotificationManager.initialize(state)
+--[[
+Initializes the NotificationManager with plugin state.
+Sets up player event monitoring for internal notifications only.
+@param state table: Plugin state table
+]]
+function NotificationManager.initialize(state: PluginState): ()
     pluginState = state
     
     -- COMPLIANCE: Check if we're in Studio
@@ -177,7 +219,11 @@ function NotificationManager.initialize(state)
     )
 end
 
-function NotificationManager.setEnabled(enabled)
+--[[
+Enables or disables notifications.
+@param enabled boolean
+]]
+function NotificationManager.setEnabled(enabled: boolean): ()
     isEnabled = enabled
     
     if enabled then
@@ -187,12 +233,22 @@ function NotificationManager.setEnabled(enabled)
     end
 end
 
-function NotificationManager.isEnabled()
+--[[
+Returns whether notifications are currently enabled.
+@return boolean
+]]
+function NotificationManager.isEnabled(): boolean
     return isEnabled
 end
 
--- COMPLIANCE: Internal message creation only
-function NotificationManager.sendMessage(title, message, notifType)
+--[[
+Sends an internal notification message.
+@param title string
+@param message string
+@param notifType string: Notification type (INFO, SUCCESS, WARNING, ERROR, USER)
+@return boolean, string: Success and error message if any
+]]
+function NotificationManager.sendMessage(title: string, message: string, notifType: NotificationType?): (boolean, string?)
     if not isEnabled then
         return false, "Notifications are disabled"
     end
@@ -244,7 +300,11 @@ function NotificationManager.testNotifications()
     return true
 end
 
-function NotificationManager.getNotifications()
+--[[
+Returns all stored notifications.
+@return table: List of notifications
+]]
+function NotificationManager.getNotifications(): {NotificationInfo}
     return notifications
 end
 
@@ -274,21 +334,35 @@ function NotificationManager.markAllAsRead()
     end
 end
 
-function NotificationManager.clearNotifications()
+--[[
+Clears all stored notifications.
+]]
+function NotificationManager.clearNotifications(): ()
     notifications = {}
     print("[TCE] Notification history cleared")
 end
 
-function NotificationManager.registerCallback(id, callback)
+--[[
+Registers a callback for notification events.
+@param id string: Unique callback id
+@param callback function
+]]
+function NotificationManager.registerCallback(id: string, callback: NotificationCallback): ()
     notificationCallbacks[id] = callback
 end
 
-function NotificationManager.unregisterCallback(id)
+--[[
+Unregisters a notification event callback by id.
+@param id string
+]]
+function NotificationManager.unregisterCallback(id: string): ()
     notificationCallbacks[id] = nil
 end
 
--- COMPLIANCE: Show compliance notice in UI
-function NotificationManager.showComplianceNotice()
+--[[
+Shows a compliance mode notice to the user.
+]]
+function NotificationManager.showComplianceNotice(): ()
     createNotification(
         "Compliance Mode Active",
         "Plugin is running in compliance mode. All external integrations disabled.",
@@ -330,7 +404,10 @@ function NotificationManager.exportNotifications()
     }
 end
 
-function NotificationManager.cleanup()
+--[[
+Cleans up the NotificationManager (clears callbacks, saves state).
+]]
+function NotificationManager.cleanup(): ()
     -- Clear all notifications
     notifications = {}
     notificationCallbacks = {}
