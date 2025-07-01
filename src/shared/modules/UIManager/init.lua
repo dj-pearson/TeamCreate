@@ -129,10 +129,11 @@ local function createTabSystem(parent)
     
     tabButtons = {}
     local tabs = {
-        {id = "overview", text = "Overview", icon = "📊"},
+        {id = "overview", text = "Overview", icon = "��"},
+        {id = "progress", text = "Progress", icon = "🚦"},
         {id = "permissions", text = "Permissions", icon = "🔐"},
         {id = "assets", text = "Assets", icon = "🎯"},
-        {id = "notifications", text = "Notifications", icon = "🔔"}, -- COMPLIANCE: Renamed from Discord
+        {id = "notifications", text = "Notifications", icon = "🔔"},
         {id = "settings", text = "Settings", icon = "⚙️"}
     }
     
@@ -598,6 +599,78 @@ local function createNotificationsPanel(parent)
     return panel
 end
 
+local function createProgressPanel(parent)
+    local panel = createRoundedFrame(parent, {
+        Name = "ProgressPanel",
+        Size = UDim2.new(1, -20, 1, -80),
+        Position = UDim2.new(0, 10, 0, 70)
+    })
+    -- Title
+    local titleLabel = Instance.new("TextLabel")
+    titleLabel.Name = "TitleLabel"
+    titleLabel.Parent = panel
+    titleLabel.Size = UDim2.new(1, -20, 0, 40)
+    titleLabel.Position = UDim2.new(0, 10, 0, 10)
+    titleLabel.BackgroundTransparency = 1
+    titleLabel.Text = "🚦 Progress Tracker"
+    titleLabel.TextColor3 = UI_CONSTANTS.COLORS.TEXT_PRIMARY
+    titleLabel.TextScaled = true
+    titleLabel.Font = UI_CONSTANTS.FONTS.HEADER
+    titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+    -- Live Edits Section
+    local liveEditsFrame = createRoundedFrame(panel, {
+        Name = "LiveEdits",
+        Size = UDim2.new(1, -20, 0, 100),
+        Position = UDim2.new(0, 10, 0, 60)
+    })
+    local liveEditsLabel = Instance.new("TextLabel")
+    liveEditsLabel.Name = "LiveEditsLabel"
+    liveEditsLabel.Parent = liveEditsFrame
+    liveEditsLabel.Size = UDim2.new(1, -20, 0, 30)
+    liveEditsLabel.Position = UDim2.new(0, 10, 0, 10)
+    liveEditsLabel.BackgroundTransparency = 1
+    liveEditsLabel.Text = "Live Edits (placeholder)"
+    liveEditsLabel.TextColor3 = UI_CONSTANTS.COLORS.TEXT_PRIMARY
+    liveEditsLabel.TextScaled = true
+    liveEditsLabel.Font = UI_CONSTANTS.FONTS.MAIN
+    liveEditsLabel.TextXAlignment = Enum.TextXAlignment.Left
+    -- User Presence Section
+    local presenceFrame = createRoundedFrame(panel, {
+        Name = "UserPresence",
+        Size = UDim2.new(1, -20, 0, 80),
+        Position = UDim2.new(0, 10, 0, 170)
+    })
+    local presenceLabel = Instance.new("TextLabel")
+    presenceLabel.Name = "PresenceLabel"
+    presenceLabel.Parent = presenceFrame
+    presenceLabel.Size = UDim2.new(1, -20, 0, 30)
+    presenceLabel.Position = UDim2.new(0, 10, 0, 10)
+    presenceLabel.BackgroundTransparency = 1
+    presenceLabel.Text = "User Presence (placeholder)"
+    presenceLabel.TextColor3 = UI_CONSTANTS.COLORS.TEXT_PRIMARY
+    presenceLabel.TextScaled = true
+    presenceLabel.Font = UI_CONSTANTS.FONTS.MAIN
+    presenceLabel.TextXAlignment = Enum.TextXAlignment.Left
+    -- Activity Timeline Section
+    local timelineFrame = createRoundedFrame(panel, {
+        Name = "ActivityTimeline",
+        Size = UDim2.new(1, -20, 1, -270),
+        Position = UDim2.new(0, 10, 0, 260)
+    })
+    local timelineLabel = Instance.new("TextLabel")
+    timelineLabel.Name = "TimelineLabel"
+    timelineLabel.Parent = timelineFrame
+    timelineLabel.Size = UDim2.new(1, -20, 0, 30)
+    timelineLabel.Position = UDim2.new(0, 10, 0, 10)
+    timelineLabel.BackgroundTransparency = 1
+    timelineLabel.Text = "Activity Timeline (placeholder)"
+    timelineLabel.TextColor3 = UI_CONSTANTS.COLORS.TEXT_PRIMARY
+    timelineLabel.TextScaled = true
+    timelineLabel.Font = UI_CONSTANTS.FONTS.MAIN
+    timelineLabel.TextXAlignment = Enum.TextXAlignment.Left
+    return panel
+end
+
 -- Public API
 function UIManager.initialize(widget, constants)
     dockWidget = widget
@@ -622,6 +695,7 @@ function UIManager.initialize(widget, constants)
     contentPanels.assets = createAssetsPanel(mainFrame)
     contentPanels.notifications = createNotificationsPanel(mainFrame)
     contentPanels.settings = createSettingsPanel(mainFrame)
+    contentPanels.progress = createProgressPanel(mainFrame)
     
     -- Hide all panels except overview
     for id, panel in pairs(contentPanels) do
@@ -659,9 +733,10 @@ end
 
 function UIManager.refresh()
     print("[TCE] Refreshing UI...")
-    -- Update dynamic content based on current tab
     if currentTab == "overview" then
         UIManager.refreshOverview()
+    elseif currentTab == "progress" then
+        -- Placeholder for future live data refresh
     elseif currentTab == "permissions" then
         UIManager.refreshPermissions()
     elseif currentTab == "assets" then
