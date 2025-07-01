@@ -2,6 +2,14 @@
 -- Handles connection monitoring, auto-recovery, and progress snapshots
 -- COMPLIANCE: No external HTTP requests, Studio-only operations
 
+--[[
+ConnectionMonitor
+=================
+Monitors Team Create connection status, handles auto-recovery, and manages progress snapshots.
+Provides APIs for monitoring, snapshot creation/restoration, and connection quality reporting.
+All data is stored using plugin settings for compliance.
+]]
+
 local ConnectionMonitor = {}
 
 -- Services
@@ -315,7 +323,10 @@ local function stopMonitoringLoop()
     print("[TCE] Stopped monitoring loops")
 end
 
--- Public API
+--[[
+Initializes the ConnectionMonitor with plugin state.
+@param state table: Plugin state table
+]]
 function ConnectionMonitor.initialize(state)
     pluginState = state
     lastHeartbeat = os.time()
@@ -326,6 +337,9 @@ function ConnectionMonitor.initialize(state)
     print("[TCE] Connection Monitor initialized (compliance mode)")
 end
 
+--[[
+Starts connection monitoring (heartbeat and snapshot loops).
+]]
 function ConnectionMonitor.startMonitoring()
     if isMonitoring then
         return
@@ -343,6 +357,9 @@ function ConnectionMonitor.startMonitoring()
     print("[TCE] Connection monitoring started")
 end
 
+--[[
+Stops connection monitoring and saves state.
+]]
 function ConnectionMonitor.stopMonitoring()
     if not isMonitoring then
         return
@@ -357,6 +374,10 @@ function ConnectionMonitor.stopMonitoring()
     print("[TCE] Connection monitoring stopped")
 end
 
+--[[
+Returns the current connection status and quality.
+@return table: Status info
+]]
 function ConnectionMonitor.getConnectionStatus()
     return {
         isConnected = connectionStatus.isConnected,
@@ -369,36 +390,69 @@ function ConnectionMonitor.getConnectionStatus()
     }
 end
 
+--[[
+Returns the list of saved snapshots (metadata only).
+@return table: Snapshots
+]]
 function ConnectionMonitor.getSnapshots()
     return snapshots
 end
 
+--[[
+Creates a manual progress snapshot.
+@return table: Snapshot metadata
+]]
 function ConnectionMonitor.createManualSnapshot()
     return createSnapshot()
 end
 
+--[[
+Restores a snapshot by version id.
+@param snapshotId number
+@return boolean: True if successful
+]]
 function ConnectionMonitor.restoreSnapshot(snapshotId)
     return restoreSnapshot(snapshotId)
 end
 
+--[[
+Registers a callback for connection events.
+@param id string: Unique callback id
+@param callback function
+]]
 function ConnectionMonitor.registerCallback(id, callback)
     connectionCallbacks[id] = callback
 end
 
+--[[
+Unregisters a connection event callback by id.
+@param id string
+]]
 function ConnectionMonitor.unregisterCallback(id)
     connectionCallbacks[id] = nil
 end
 
+--[[
+Forces a reconnection attempt.
+@return boolean: True if successful
+]]
 function ConnectionMonitor.forceReconnect()
     reconnectAttempts = 0
     return attemptReconnection()
 end
 
+--[[
+Returns the list of currently active users in Team Create.
+@return table: List of users
+]]
 function ConnectionMonitor.getActiveUsers()
     return connectionStatus.teamCreateUsers
 end
 
--- COMPLIANCE: Export/import using plugin settings only
+--[[
+Exports all snapshot metadata for backup or migration.
+@return table
+]]
 function ConnectionMonitor.exportSnapshots()
     return {
         version = "1.0",
@@ -408,6 +462,11 @@ function ConnectionMonitor.exportSnapshots()
     }
 end
 
+--[[
+Imports snapshot metadata (merges with current snapshots).
+@param data table
+@return boolean: True if import was successful
+]]
 function ConnectionMonitor.importSnapshots(data)
     if data.version == "1.0" and data.snapshots then
         -- Merge imported snapshots (metadata only)
@@ -427,14 +486,26 @@ function ConnectionMonitor.importSnapshots(data)
     return false
 end
 
+--[[
+Returns the current connection quality string.
+@return string: Quality
+]]
 function ConnectionMonitor.getConnectionQuality()
     return connectionStatus.quality
 end
 
+--[[
+Returns true if the connection is stable (Excellent/Good).
+@return boolean
+]]
 function ConnectionMonitor.isStable()
     return connectionStatus.quality == "Excellent" or connectionStatus.quality == "Good"
 end
 
+--[[
+Returns statistics about connection and monitoring.
+@return table: Stats table
+]]
 function ConnectionMonitor.getStats()
     return {
         totalSnapshots = #snapshots,
@@ -445,7 +516,9 @@ function ConnectionMonitor.getStats()
     }
 end
 
--- COMPLIANCE: Cleanup function
+--[[
+Cleans up the ConnectionMonitor (stops monitoring, saves state, clears callbacks).
+]]
 function ConnectionMonitor.cleanup()
     stopMonitoring()
     
