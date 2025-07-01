@@ -1,0 +1,12 @@
+{
+  "name": "TeamCreateEnhancer",
+  "tree": {
+    "$className": "PluginFolder",
+    "$path": "src",
+    "$properties": {
+      "Name": "TeamCreateEnhancer"
+    }
+  },
+  "emitLegacyScripts": false,
+  "servePort": 34872
+} 
