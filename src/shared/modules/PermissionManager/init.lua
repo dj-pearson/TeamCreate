@@ -2,6 +2,15 @@
 -- Handles role-based permission control for Team Create Enhancement Plugin
 -- COMPLIANCE: No external dependencies, self-contained module
 
+--[[
+PermissionManager
+================
+Manages user roles and permissions for the Team Create Enhancer plugin.
+Provides APIs for assigning roles, checking permissions, and managing role configuration.
+Roles include: OWNER, ADMIN, DEVELOPER, SCRIPTER, BUILDER, VIEWER.
+All data is stored using plugin settings for compliance.
+]]
+
 local PermissionManager = {}
 
 -- Services
@@ -202,7 +211,11 @@ local function loadRoleConfiguration()
     end
 end
 
--- Public API
+--[[
+Initializes the PermissionManager with plugin state.
+Loads saved role configuration and sets up the current user as OWNER if not present.
+@param state table: Plugin state table
+]]
 function PermissionManager.initialize(state)
     pluginState = state
     
@@ -220,6 +233,12 @@ function PermissionManager.initialize(state)
     print("[TCE] Current user role:", userRoles[currentUser])
 end
 
+--[[
+Assigns a role to a user.
+@param userId number: The userId to assign the role to
+@param roleName string: The role name to assign
+@return boolean: True if successful
+]]
 function PermissionManager.assignRole(userId, roleName)
     local success = assignRole(userId, roleName)
     if success then
@@ -228,6 +247,11 @@ function PermissionManager.assignRole(userId, roleName)
     return success
 end
 
+--[[
+Removes a role from a user (sets to VIEWER).
+@param userId number: The userId to remove the role from
+@return boolean: True if successful
+]]
 function PermissionManager.removeRole(userId)
     local success = removeRole(userId)
     if success then
@@ -236,39 +260,83 @@ function PermissionManager.removeRole(userId)
     return success
 end
 
+--[[
+Gets the role of a user.
+@param userId number: The userId to query
+@return string: The user's role name
+]]
 function PermissionManager.getUserRole(userId)
     return userRoles[userId] or "VIEWER"
 end
 
+--[[
+Gets the role of the current user (LocalPlayer).
+@return string: The current user's role name
+]]
 function PermissionManager.getCurrentUserRole()
     local currentUser = Players.LocalPlayer.UserId
     return PermissionManager.getUserRole(currentUser)
 end
 
+--[[
+Returns the table of all defined roles and their properties.
+@return table: Role definitions
+]]
 function PermissionManager.getAllRoles()
     return PERMISSION_ROLES
 end
 
+--[[
+Checks if a user has a specific permission.
+@param userId number: The userId to check
+@param permission string: The permission string
+@return boolean: True if the user has the permission
+]]
 function PermissionManager.hasPermission(userId, permission)
     return hasPermission(userId, permission)
 end
 
+--[[
+Checks if a user can edit scripts.
+@param userId number
+@return boolean
+]]
 function PermissionManager.canEditScripts(userId)
     return canEditScripts(userId)
 end
 
+--[[
+Checks if a user can edit builds.
+@param userId number
+@return boolean
+]]
 function PermissionManager.canEditBuilds(userId)
     return canEditBuilds(userId)
 end
 
+--[[
+Checks if a user can lock assets.
+@param userId number
+@return boolean
+]]
 function PermissionManager.canLockAssets(userId)
     return canLockAssets(userId)
 end
 
+--[[
+Checks if a user can manage other users.
+@param userId number
+@return boolean
+]]
 function PermissionManager.canManageUsers(userId)
     return canManageUsers(userId)
 end
 
+--[[
+Returns a list of userIds for a given role.
+@param roleName string
+@return table: List of userIds
+]]
 function PermissionManager.getUsersByRole(roleName)
     local users = {}
     for userId, role in pairs(userRoles) do
@@ -279,31 +347,59 @@ function PermissionManager.getUsersByRole(roleName)
     return users
 end
 
+--[[
+Registers a callback for permission events.
+@param id string: Unique callback id
+@param callback function: The callback function
+]]
 function PermissionManager.registerCallback(id, callback)
     permissionCallbacks[id] = callback
 end
 
+--[[
+Unregisters a callback by id.
+@param id string
+]]
 function PermissionManager.unregisterCallback(id)
     permissionCallbacks[id] = nil
 end
 
+--[[
+Gets the color associated with a role.
+@param roleName string
+@return Color3
+]]
 function PermissionManager.getRoleColor(roleName)
     local role = PERMISSION_ROLES[roleName]
     return role and role.color or Color3.fromHex("#6b7280")
 end
 
+--[[
+Gets the priority value for a role.
+@param roleName string
+@return number
+]]
 function PermissionManager.getRolePriority(roleName)
     local role = PERMISSION_ROLES[roleName]
     return role and role.priority or 0
 end
 
+--[[
+Validates if an assigner role can assign a target role (priority check).
+@param assignerRole string
+@param targetRole string
+@return boolean
+]]
 function PermissionManager.validateRoleHierarchy(assignerRole, targetRole)
     local assignerPriority = PermissionManager.getRolePriority(assignerRole)
     local targetPriority = PermissionManager.getRolePriority(targetRole)
     return assignerPriority > targetPriority
 end
 
--- COMPLIANCE: Export/import using safe plugin settings only
+--[[
+Exports the current role configuration for backup or migration.
+@return table
+]]
 function PermissionManager.exportRoleConfig()
     return {
         version = "1.0",
@@ -313,6 +409,11 @@ function PermissionManager.exportRoleConfig()
     }
 end
 
+--[[
+Imports a role configuration.
+@param config table
+@return boolean: True if import was successful
+]]
 function PermissionManager.importRoleConfig(config)
     if config.version == "1.0" and config.roles then
         for userId, role in pairs(config.roles) do
@@ -327,6 +428,9 @@ function PermissionManager.importRoleConfig(config)
     return false
 end
 
+--[[
+Resets all roles to default (current user as OWNER).
+]]
 function PermissionManager.resetRoles()
     local currentUser = Players.LocalPlayer.UserId
     userRoles = {[currentUser] = "OWNER"}
@@ -334,6 +438,10 @@ function PermissionManager.resetRoles()
     print("[TCE] Role configuration reset")
 end
 
+--[[
+Returns statistics about roles and users.
+@return table: Stats table
+]]
 function PermissionManager.getRoleStats()
     local stats = {
         totalUsers = 0,
@@ -348,7 +456,9 @@ function PermissionManager.getRoleStats()
     return stats
 end
 
--- COMPLIANCE: Clean up function
+--[[
+Cleans up the PermissionManager (saves state, clears callbacks).
+]]
 function PermissionManager.cleanup()
     -- Save current state
     saveRoleConfiguration()

@@ -2,6 +2,15 @@
 -- Handles asset locking system with visual indicators for conflict prevention
 -- COMPLIANCE: No external dependencies, Studio-only operations
 
+--[[
+AssetLockManager
+================
+Manages asset locking for Team Create Enhancer plugin.
+Provides APIs for locking/unlocking assets, visual lock indicators, and lock metadata.
+Integrates with PermissionManager for role-based lock permissions.
+All lock data is stored using plugin settings for compliance.
+]]
+
 local AssetLockManager = {}
 
 -- Services
@@ -263,6 +272,10 @@ local function canLockAsset(userId, instancePath)
 end
 
 -- Public API
+--[[
+Initializes the AssetLockManager with plugin state.
+@param state table: Plugin state table
+]]
 function AssetLockManager.initialize(state)
     pluginState = state
     
@@ -317,6 +330,12 @@ function AssetLockManager.initialize(state)
     print("[TCE] Asset Lock Manager initialized")
 end
 
+--[[
+Locks an asset for the current user.
+@param instance Instance: The asset to lock
+@param lockType string: The type of lock (optional)
+@return boolean, string: Success and message
+]]
 function AssetLockManager.lockAsset(instance, lockType)
     if not instance then
         return false, "Invalid instance"
@@ -368,6 +387,13 @@ function AssetLockManager.lockAsset(instance, lockType)
     return true, "Asset locked successfully"
 end
 
+--[[
+Unlocks an asset by path for a user.
+@param instancePath string: The asset path
+@param userId number: The user unlocking
+@param isAutoUnlock boolean: If true, unlock is automatic (timeout)
+@return boolean, string: Success and message
+]]
 function AssetLockManager.unlockAsset(instancePath, userId, isAutoUnlock)
     local lockInfo = assetLocks[instancePath]
     
@@ -411,6 +437,11 @@ function AssetLockManager.unlockAsset(instancePath, userId, isAutoUnlock)
     return true, "Asset unlocked successfully"
 end
 
+--[[
+Checks if an asset is locked.
+@param instance Instance
+@return boolean, table: True and lockInfo if locked, else false
+]]
 function AssetLockManager.isAssetLocked(instance)
     local instancePath = getInstancePath(instance)
     local lockInfo = assetLocks[instancePath]
@@ -422,6 +453,10 @@ function AssetLockManager.isAssetLocked(instance)
     return false, nil
 end
 
+--[[
+Returns a table of all currently locked assets (not expired).
+@return table: {path = lockInfo}
+]]
 function AssetLockManager.getLockedAssets()
     local locks = {}
     for path, lockInfo in pairs(assetLocks) do
@@ -432,6 +467,11 @@ function AssetLockManager.getLockedAssets()
     return locks
 end
 
+--[[
+Returns all locks held by a specific user.
+@param userId number
+@return table: {path = lockInfo}
+]]
 function AssetLockManager.getUserLocks(userId)
     local userLocks = {}
     for path, lockInfo in pairs(assetLocks) do
@@ -442,14 +482,27 @@ function AssetLockManager.getUserLocks(userId)
     return userLocks
 end
 
+--[[
+Registers a callback for lock events.
+@param id string: Unique callback id
+@param callback function
+]]
 function AssetLockManager.registerCallback(id, callback)
     lockCallbacks[id] = callback
 end
 
+--[[
+Unregisters a lock event callback by id.
+@param id string
+]]
 function AssetLockManager.unregisterCallback(id)
     lockCallbacks[id] = nil
 end
 
+--[[
+Returns statistics about current locks.
+@return table: Stats table
+]]
 function AssetLockManager.getLockStats()
     local stats = {
         totalLocks = 0,
@@ -476,7 +529,10 @@ function AssetLockManager.getLockStats()
     return stats
 end
 
--- COMPLIANCE: Export/import using plugin settings only
+--[[
+Exports all lock data for backup or migration.
+@return table
+]]
 function AssetLockManager.exportLocks()
     return {
         version = "1.0",
@@ -486,6 +542,11 @@ function AssetLockManager.exportLocks()
     }
 end
 
+--[[
+Imports lock data (merges with current locks).
+@param data table
+@return boolean: True if import was successful
+]]
 function AssetLockManager.importLocks(data)
     if data.version == "1.0" and data.locks then
         -- Merge imported locks
@@ -503,6 +564,9 @@ function AssetLockManager.importLocks(data)
     return false
 end
 
+--[[
+Cleans up the AssetLockManager (disconnects, clears visuals, saves state).
+]]
 function AssetLockManager.cleanup()
     -- Disconnect connections
     if selectionConnection then
@@ -529,7 +593,10 @@ function AssetLockManager.cleanup()
     print("[TCE] Asset Lock Manager cleaned up")
 end
 
--- Module cross-reference methods
+--[[
+Sets the PermissionManager reference for cross-module integration.
+@param permissionManagerRef table
+]]
 function AssetLockManager.setPermissionManager(permissionManagerRef)
     PermissionManager = permissionManagerRef
     print("[TCE] AssetLockManager: PermissionManager reference set")
