@@ -113,10 +113,7 @@ local function initializePlugin(): ()
     -- COMPLIANCE: Verify compliance before starting
     verifyCompliance()
     
-    -- Setup UI
-    UIManager.initialize(dockWidget, UI_CONSTANTS)
-    
-    -- Initialize core systems
+    -- Initialize core systems first
     PermissionManager.initialize(pluginState)
     ConnectionMonitor.initialize(pluginState)
     AssetLockManager.initialize(pluginState)
@@ -124,7 +121,13 @@ local function initializePlugin(): ()
     ConflictResolver.initialize(pluginState)
     TaskManager.initialize(pluginState)
     
-    -- Set up module cross-references for UI integration
+    -- Set up module cross-references for backend integration
+    AssetLockManager.setPermissionManager(PermissionManager)
+    ConflictResolver.setAssetLockManager(AssetLockManager)
+    ConflictResolver.setPermissionManager(PermissionManager)
+    TaskManager.setModuleReferences(PermissionManager, NotificationManager)
+    
+    -- Setup UI with all modules available
     local moduleRefs: ModuleReferences = {
         PermissionManager = PermissionManager,
         AssetLockManager = AssetLockManager,
@@ -133,20 +136,14 @@ local function initializePlugin(): ()
         ConflictResolver = ConflictResolver,
         TaskManager = TaskManager
     }
-    UIManager.setModuleReferences(moduleRefs)
-    
-    -- Set up module cross-references for backend integration
-    AssetLockManager.setPermissionManager(PermissionManager)
-    ConflictResolver.setAssetLockManager(AssetLockManager)
-    ConflictResolver.setPermissionManager(PermissionManager)
-    TaskManager.setModuleReferences(PermissionManager, NotificationManager)
+    UIManager.initialize(dockWidget, moduleRefs)
     
     -- Setup plugin toolbar
     local toolbar = plugin:CreateToolbar("Team Create Enhancer")
     local toggleButton = toolbar:CreateButton(
         "TCE",
         "Toggle Team Create Enhancement Panel",
-        "rbxassetid://75806853590546"
+        "rbxasset://textures/Studio/AvatarImporter/Light/CollaborativeEditing.png"
     )
     
     toggleButton.Click:Connect(function()
@@ -154,7 +151,7 @@ local function initializePlugin(): ()
         pluginState.isEnabled = dockWidget.Enabled
         
         if pluginState.isEnabled then
-            UIManager.refresh()
+            UIManager.refreshCurrentTab()
             ConnectionMonitor.startMonitoring()
         else
             ConnectionMonitor.stopMonitoring()
@@ -178,7 +175,7 @@ local function initializePlugin(): ()
         end
         
         -- Initial UI refresh
-        UIManager.refresh()
+        UIManager.refreshCurrentTab()
     end
     
     print("[TCE] Plugin initialized successfully!")
