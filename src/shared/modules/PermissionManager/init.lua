@@ -128,7 +128,7 @@ local function assignRole(userId, roleName)
         return false
     end
     
-    local currentUser = Players.LocalPlayer.UserId
+    local currentUser = Players and Players.LocalPlayer and Players.LocalPlayer.UserId or 0
     if not hasPermission(currentUser, "role.assign") then
         warn("[TCE] Permission denied: Cannot assign roles")
         return false
@@ -153,7 +153,7 @@ local function assignRole(userId, roleName)
 end
 
 local function removeRole(userId)
-    local currentUser = Players.LocalPlayer.UserId
+    local currentUser = Players and Players.LocalPlayer and Players.LocalPlayer.UserId or 0
     if not hasPermission(currentUser, "role.assign") then
         warn("[TCE] Permission denied: Cannot remove roles")
         return false
@@ -236,7 +236,7 @@ function PermissionManager.initialize(state: PluginState): ()
     loadRoleConfiguration()
     
     -- Set up default roles for current session
-    local localPlayer = Players.LocalPlayer
+    local localPlayer = Players and Players.LocalPlayer
     if localPlayer and localPlayer.UserId then
         local currentUser = localPlayer.UserId
         if not userRoles[currentUser] then
@@ -291,7 +291,7 @@ Gets the role of the current user (LocalPlayer).
 @return string: The current user's role name
 ]]
 function PermissionManager.getCurrentUserRole(): RoleName
-    local localPlayer = Players.LocalPlayer
+    local localPlayer = Players and Players.LocalPlayer
     if localPlayer and localPlayer.UserId then
         local currentUser = localPlayer.UserId
         return PermissionManager.getUserRole(currentUser)
@@ -453,7 +453,7 @@ end
 Resets all roles to default (current user as OWNER).
 ]]
 function PermissionManager.resetRoles(): ()
-    local currentUser = Players.LocalPlayer.UserId
+    local currentUser = Players and Players.LocalPlayer and Players.LocalPlayer.UserId or 0
     userRoles = {[currentUser] = "OWNER"}
     saveRoleConfiguration()
     print("[TCE] Role configuration reset")

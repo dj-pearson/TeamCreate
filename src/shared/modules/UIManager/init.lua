@@ -30,11 +30,25 @@ local AssetLockManager = nil
 local ConnectionMonitor = nil
 local NotificationManager = nil
 local ConflictResolver = nil
+local TaskManager = nil
 
 -- Auto-refresh system
 local refreshConnection = nil
 local REFRESH_INTERVAL = 5 -- seconds
 local lastRefreshTime = 0
+
+-- Progress tracking
+local progressData = {
+    sessionStartTime = 0,
+    editCounts = {
+        scripts = 0,
+        builds = 0,
+        assets = 0
+    },
+    currentSelection = nil,
+    recentActivity = {},
+    userActivity = {}
+}
 
 -- UI Creation Utilities
 local function createRoundedFrame(parent, props)
@@ -144,8 +158,9 @@ local function createTabSystem(parent)
     
     tabButtons = {}
     local tabs = {
-        {id = "overview", text = "Overview", icon = "��"},
+        {id = "overview", text = "Overview", icon = "🏠"},
         {id = "progress", text = "Progress", icon = "🚦"},
+        {id = "tasks", text = "Tasks", icon = "📋"},
         {id = "permissions", text = "Permissions", icon = "🔐"},
         {id = "assets", text = "Assets", icon = "🎯"},
         {id = "notifications", text = "Notifications", icon = "🔔"},
@@ -153,11 +168,12 @@ local function createTabSystem(parent)
     }
     
     for i, tab in ipairs(tabs) do
+        local tabWidth = 1 / #tabs
         local button = createStyledButton(tabContainer, {
             Name = tab.id .. "Tab",
             Text = tab.icon .. " " .. tab.text,
-            Size = UDim2.new(0.2, -4, 1, -10),
-            Position = UDim2.new((i-1) * 0.2, 2, 0, 5),
+            Size = UDim2.new(tabWidth, -4, 1, -10),
+            Position = UDim2.new((i-1) * tabWidth, 2, 0, 5),
             BackgroundColor3 = currentTab == tab.id and UI_CONSTANTS.COLORS.ACCENT_PURPLE or UI_CONSTANTS.COLORS.SECONDARY_BG
         })
         
@@ -676,11 +692,12 @@ local function createProgressPanel(parent)
         Size = UDim2.new(1, -20, 1, -80),
         Position = UDim2.new(0, 10, 0, 70)
     })
-    -- Title
+    
+    -- Title with session info
     local titleLabel = Instance.new("TextLabel")
     titleLabel.Name = "TitleLabel"
     titleLabel.Parent = panel
-    titleLabel.Size = UDim2.new(1, -20, 0, 40)
+    titleLabel.Size = UDim2.new(0.7, 0, 0, 40)
     titleLabel.Position = UDim2.new(0, 10, 0, 10)
     titleLabel.BackgroundTransparency = 1
     titleLabel.Text = "🚦 Progress Tracker"
@@ -688,57 +705,286 @@ local function createProgressPanel(parent)
     titleLabel.TextScaled = true
     titleLabel.Font = UI_CONSTANTS.FONTS.HEADER
     titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+    
+    -- Session time display
+    local sessionTimeLabel = Instance.new("TextLabel")
+    sessionTimeLabel.Name = "SessionTimeLabel"
+    sessionTimeLabel.Parent = panel
+    sessionTimeLabel.Size = UDim2.new(0.2, 0, 0, 40)
+    sessionTimeLabel.Position = UDim2.new(0.5, 0, 0, 10)
+    sessionTimeLabel.BackgroundTransparency = 1
+    sessionTimeLabel.Text = "Session: 0:00"
+    sessionTimeLabel.TextColor3 = UI_CONSTANTS.COLORS.ACCENT_TEAL
+    sessionTimeLabel.TextScaled = true
+    sessionTimeLabel.Font = UI_CONSTANTS.FONTS.MAIN
+    sessionTimeLabel.TextXAlignment = Enum.TextXAlignment.Center
+    
+    -- Reset button
+    local resetButton = createStyledButton(panel, {
+        Name = "ResetButton",
+        Text = "🔄 Reset Session",
+        Size = UDim2.new(0.3, -10, 0, 30),
+        Position = UDim2.new(0.7, 0, 0, 15),
+        BackgroundColor3 = UI_CONSTANTS.COLORS.ACCENT_MAGENTA
+    })
+    
+    -- Add click handler for reset button
+    resetButton.MouseButton1Click:Connect(function()
+        UIManager.resetProgressData()
+        -- Refresh immediately to show reset data
+        if currentTab == "progress" then
+            UIManager.refreshProgress()
+        end
+    end)
+    
     -- Live Edits Section
     local liveEditsFrame = createRoundedFrame(panel, {
         Name = "LiveEdits",
-        Size = UDim2.new(1, -20, 0, 100),
+        Size = UDim2.new(1, -20, 0, 120),
         Position = UDim2.new(0, 10, 0, 60)
     })
+    
     local liveEditsLabel = Instance.new("TextLabel")
     liveEditsLabel.Name = "LiveEditsLabel"
     liveEditsLabel.Parent = liveEditsFrame
-    liveEditsLabel.Size = UDim2.new(1, -20, 0, 30)
-    liveEditsLabel.Position = UDim2.new(0, 10, 0, 10)
+    liveEditsLabel.Size = UDim2.new(1, -20, 0, 25)
+    liveEditsLabel.Position = UDim2.new(0, 10, 0, 5)
     liveEditsLabel.BackgroundTransparency = 1
-    liveEditsLabel.Text = "Live Edits (placeholder)"
+    liveEditsLabel.Text = "🎯 Live Editing Activity"
     liveEditsLabel.TextColor3 = UI_CONSTANTS.COLORS.TEXT_PRIMARY
     liveEditsLabel.TextScaled = true
     liveEditsLabel.Font = UI_CONSTANTS.FONTS.MAIN
     liveEditsLabel.TextXAlignment = Enum.TextXAlignment.Left
+    
+    -- Live edits stats
+    local editsStatsFrame = Instance.new("Frame")
+    editsStatsFrame.Name = "EditsStats"
+    editsStatsFrame.Parent = liveEditsFrame
+    editsStatsFrame.Size = UDim2.new(1, -20, 0, 30)
+    editsStatsFrame.Position = UDim2.new(0, 10, 0, 30)
+    editsStatsFrame.BackgroundTransparency = 1
+    
+    local function createStatLabel(parent, name, text, position, color)
+        local label = Instance.new("TextLabel")
+        label.Name = name
+        label.Parent = parent
+        label.Size = UDim2.new(0.33, -5, 1, 0)
+        label.Position = position
+        label.BackgroundTransparency = 1
+        label.Text = text
+        label.TextColor3 = color
+        label.TextScaled = true
+        label.Font = UI_CONSTANTS.FONTS.MAIN
+        label.TextXAlignment = Enum.TextXAlignment.Center
+        return label
+    end
+    
+    createStatLabel(editsStatsFrame, "ScriptEdits", "Scripts: 0", UDim2.new(0, 0, 0, 0), UI_CONSTANTS.COLORS.ACCENT_BLUE)
+    createStatLabel(editsStatsFrame, "BuildEdits", "Builds: 0", UDim2.new(0.33, 0, 0, 0), UI_CONSTANTS.COLORS.ACCENT_PURPLE)
+    createStatLabel(editsStatsFrame, "AssetEdits", "Assets: 0", UDim2.new(0.66, 0, 0, 0), UI_CONSTANTS.COLORS.ACCENT_MAGENTA)
+    
+    -- Current editor display
+    local currentEditorLabel = Instance.new("TextLabel")
+    currentEditorLabel.Name = "CurrentEditorLabel"
+    currentEditorLabel.Parent = liveEditsFrame
+    currentEditorLabel.Size = UDim2.new(1, -20, 0, 25)
+    currentEditorLabel.Position = UDim2.new(0, 10, 0, 65)
+    currentEditorLabel.BackgroundTransparency = 1
+    currentEditorLabel.Text = "Currently editing: No selection"
+    currentEditorLabel.TextColor3 = UI_CONSTANTS.COLORS.TEXT_SECONDARY
+    currentEditorLabel.TextScaled = true
+    currentEditorLabel.Font = UI_CONSTANTS.FONTS.MAIN
+    currentEditorLabel.TextXAlignment = Enum.TextXAlignment.Left
+    
     -- User Presence Section
     local presenceFrame = createRoundedFrame(panel, {
         Name = "UserPresence",
-        Size = UDim2.new(1, -20, 0, 80),
-        Position = UDim2.new(0, 10, 0, 170)
+        Size = UDim2.new(1, -20, 0, 100),
+        Position = UDim2.new(0, 10, 0, 190)
     })
+    
     local presenceLabel = Instance.new("TextLabel")
     presenceLabel.Name = "PresenceLabel"
     presenceLabel.Parent = presenceFrame
-    presenceLabel.Size = UDim2.new(1, -20, 0, 30)
-    presenceLabel.Position = UDim2.new(0, 10, 0, 10)
+    presenceLabel.Size = UDim2.new(1, -20, 0, 25)
+    presenceLabel.Position = UDim2.new(0, 10, 0, 5)
     presenceLabel.BackgroundTransparency = 1
-    presenceLabel.Text = "User Presence (placeholder)"
+    presenceLabel.Text = "👥 Team Presence"
     presenceLabel.TextColor3 = UI_CONSTANTS.COLORS.TEXT_PRIMARY
     presenceLabel.TextScaled = true
     presenceLabel.Font = UI_CONSTANTS.FONTS.MAIN
     presenceLabel.TextXAlignment = Enum.TextXAlignment.Left
+    
     -- Activity Timeline Section
     local timelineFrame = createRoundedFrame(panel, {
         Name = "ActivityTimeline",
-        Size = UDim2.new(1, -20, 1, -270),
-        Position = UDim2.new(0, 10, 0, 260)
+        Size = UDim2.new(1, -20, 1, -310),
+        Position = UDim2.new(0, 10, 0, 300)
     })
+    
     local timelineLabel = Instance.new("TextLabel")
     timelineLabel.Name = "TimelineLabel"
     timelineLabel.Parent = timelineFrame
-    timelineLabel.Size = UDim2.new(1, -20, 0, 30)
-    timelineLabel.Position = UDim2.new(0, 10, 0, 10)
+    timelineLabel.Size = UDim2.new(1, -20, 0, 25)
+    timelineLabel.Position = UDim2.new(0, 10, 0, 5)
     timelineLabel.BackgroundTransparency = 1
-    timelineLabel.Text = "Activity Timeline (placeholder)"
+    timelineLabel.Text = "📈 Activity Timeline"
     timelineLabel.TextColor3 = UI_CONSTANTS.COLORS.TEXT_PRIMARY
     timelineLabel.TextScaled = true
     timelineLabel.Font = UI_CONSTANTS.FONTS.MAIN
     timelineLabel.TextXAlignment = Enum.TextXAlignment.Left
+    
+    return panel
+end
+
+local function createTasksPanel(parent)
+    local panel = createRoundedFrame(parent, {
+        Name = "TasksPanel",
+        Size = UDim2.new(1, -20, 1, -80),
+        Position = UDim2.new(0, 10, 0, 70)
+    })
+    
+    -- Title with task stats
+    local titleLabel = Instance.new("TextLabel")
+    titleLabel.Name = "TitleLabel"
+    titleLabel.Parent = panel
+    titleLabel.Size = UDim2.new(0.5, 0, 0, 40)
+    titleLabel.Position = UDim2.new(0, 10, 0, 10)
+    titleLabel.BackgroundTransparency = 1
+    titleLabel.Text = "📋 Task Management"
+    titleLabel.TextColor3 = UI_CONSTANTS.COLORS.TEXT_PRIMARY
+    titleLabel.TextScaled = true
+    titleLabel.Font = UI_CONSTANTS.FONTS.HEADER
+    titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+    
+    -- Quick stats
+    local statsLabel = Instance.new("TextLabel")
+    statsLabel.Name = "StatsLabel"
+    statsLabel.Parent = panel
+    statsLabel.Size = UDim2.new(0.3, 0, 0, 40)
+    statsLabel.Position = UDim2.new(0.5, 0, 0, 10)
+    statsLabel.BackgroundTransparency = 1
+    statsLabel.Text = "Total: 0 | Mine: 0"
+    statsLabel.TextColor3 = UI_CONSTANTS.COLORS.ACCENT_TEAL
+    statsLabel.TextScaled = true
+    statsLabel.Font = UI_CONSTANTS.FONTS.MAIN
+    statsLabel.TextXAlignment = Enum.TextXAlignment.Center
+    
+    -- New Task Button
+    local newTaskButton = createStyledButton(panel, {
+        Name = "NewTaskButton",
+        Text = "➕ New Task",
+        Size = UDim2.new(0.2, -5, 0, 30),
+        Position = UDim2.new(0.8, 0, 0, 15),
+        BackgroundColor3 = UI_CONSTANTS.COLORS.SUCCESS_GREEN
+    })
+    
+    -- Add click handler for new task button
+    newTaskButton.MouseButton1Click:Connect(function()
+        UIManager.showNewTaskDialog()
+    end)
+    
+    -- Task Filter Section
+    local filterFrame = createRoundedFrame(panel, {
+        Name = "TaskFilters",
+        Size = UDim2.new(1, -20, 0, 80),
+        Position = UDim2.new(0, 10, 0, 60)
+    })
+    
+    local filterLabel = Instance.new("TextLabel")
+    filterLabel.Name = "FilterLabel"
+    filterLabel.Parent = filterFrame
+    filterLabel.Size = UDim2.new(0.2, 0, 0, 25)
+    filterLabel.Position = UDim2.new(0, 10, 0, 5)
+    filterLabel.BackgroundTransparency = 1
+    filterLabel.Text = "🔍 Filters:"
+    filterLabel.TextColor3 = UI_CONSTANTS.COLORS.TEXT_PRIMARY
+    filterLabel.TextScaled = true
+    filterLabel.Font = UI_CONSTANTS.FONTS.MAIN
+    filterLabel.TextXAlignment = Enum.TextXAlignment.Left
+    
+    -- Filter buttons row
+    local filterButtons = {}
+    local filters = {
+        {id = "all", text = "All", color = UI_CONSTANTS.COLORS.SECONDARY_BG},
+        {id = "mine", text = "My Tasks", color = UI_CONSTANTS.COLORS.ACCENT_BLUE},
+        {id = "todo", text = "To Do", color = UI_CONSTANTS.COLORS.ACCENT_PURPLE},
+        {id = "inprogress", text = "In Progress", color = UI_CONSTANTS.COLORS.ACCENT_TEAL},
+        {id = "overdue", text = "Overdue", color = UI_CONSTANTS.COLORS.ERROR_RED}
+    }
+    
+    for i, filter in ipairs(filters) do
+        local button = createStyledButton(filterFrame, {
+            Name = filter.id .. "Filter",
+            Text = filter.text,
+            Size = UDim2.new(0.18, -2, 0, 25),
+            Position = UDim2.new(0.2 + (i-1) * 0.16, 2, 0, 5),
+            BackgroundColor3 = filter.color
+        })
+        filterButtons[filter.id] = button
+    end
+    
+    -- Priority/Type filters row
+    local priorityLabel = Instance.new("TextLabel")
+    priorityLabel.Name = "PriorityLabel"
+    priorityLabel.Parent = filterFrame
+    priorityLabel.Size = UDim2.new(0.2, 0, 0, 25)
+    priorityLabel.Position = UDim2.new(0, 10, 0, 35)
+    priorityLabel.BackgroundTransparency = 1
+    priorityLabel.Text = "Priority:"
+    priorityLabel.TextColor3 = UI_CONSTANTS.COLORS.TEXT_SECONDARY
+    priorityLabel.TextScaled = true
+    priorityLabel.Font = UI_CONSTANTS.FONTS.MAIN
+    priorityLabel.TextXAlignment = Enum.TextXAlignment.Left
+    
+    local priorities = {"Critical", "High", "Medium", "Low"}
+    for i, priority in ipairs(priorities) do
+        local color = UI_CONSTANTS.COLORS.SECONDARY_BG
+        if priority == "Critical" then color = UI_CONSTANTS.COLORS.ERROR_RED
+        elseif priority == "High" then color = UI_CONSTANTS.COLORS.ACCENT_MAGENTA
+        elseif priority == "Medium" then color = UI_CONSTANTS.COLORS.ACCENT_BLUE
+        end
+        
+        local button = createStyledButton(filterFrame, {
+            Name = priority .. "Priority",
+            Text = priority,
+            Size = UDim2.new(0.18, -2, 0, 25),
+            Position = UDim2.new(0.2 + (i-1) * 0.16, 2, 0, 35),
+            BackgroundColor3 = color
+        })
+        filterButtons[priority:lower()] = button
+    end
+    
+    -- Active Tasks List
+    local tasksListFrame = createRoundedFrame(panel, {
+        Name = "TasksList",
+        Size = UDim2.new(1, -20, 1, -160),
+        Position = UDim2.new(0, 10, 0, 150)
+    })
+    
+    local tasksScrollFrame = Instance.new("ScrollingFrame")
+    tasksScrollFrame.Name = "TasksScroll"
+    tasksScrollFrame.Parent = tasksListFrame
+    tasksScrollFrame.Size = UDim2.new(1, -10, 1, -35)
+    tasksScrollFrame.Position = UDim2.new(0, 5, 0, 30)
+    tasksScrollFrame.BackgroundTransparency = 1
+    tasksScrollFrame.BorderSizePixel = 0
+    tasksScrollFrame.ScrollBarThickness = 6
+    tasksScrollFrame.ScrollBarImageColor3 = UI_CONSTANTS.COLORS.ACCENT_BLUE
+    tasksScrollFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+    
+    local tasksListLabel = Instance.new("TextLabel")
+    tasksListLabel.Name = "TasksListLabel"
+    tasksListLabel.Parent = tasksListFrame
+    tasksListLabel.Size = UDim2.new(1, -20, 0, 25)
+    tasksListLabel.Position = UDim2.new(0, 10, 0, 5)
+    tasksListLabel.BackgroundTransparency = 1
+    tasksListLabel.Text = "📝 Active Tasks (0)"
+    tasksListLabel.TextColor3 = UI_CONSTANTS.COLORS.TEXT_PRIMARY
+    tasksListLabel.TextScaled = true
+    tasksListLabel.Font = UI_CONSTANTS.FONTS.MAIN
+    tasksListLabel.TextXAlignment = Enum.TextXAlignment.Left
+    
     return panel
 end
 
@@ -773,11 +1019,39 @@ function UIManager.initialize(widget, constants)
     contentPanels.notifications = createNotificationsPanel(mainFrame)
     contentPanels.settings = createSettingsPanel(mainFrame)
     contentPanels.progress = createProgressPanel(mainFrame)
+    contentPanels.tasks = createTasksPanel(mainFrame)
     
     -- Hide all panels except overview
     for id, panel in pairs(contentPanels) do
         panel.Visible = (id == currentTab)
     end
+    
+    -- Initialize progress tracking
+    progressData.sessionStartTime = os.time()
+    
+    -- Set up selection change monitoring for progress tracking
+    local Selection = game:GetService("Selection")
+    Selection.SelectionChanged:Connect(function()
+        local selected = Selection:Get()
+        if #selected > 0 then
+            local selectedItem = selected[1]
+            
+            -- Track edit based on selection type
+            if selectedItem:IsA("Script") or selectedItem:IsA("LocalScript") or selectedItem:IsA("ModuleScript") then
+                UIManager.trackEdit("script")
+            elseif selectedItem:IsA("Part") or selectedItem:IsA("Model") or selectedItem:IsA("MeshPart") then
+                UIManager.trackEdit("build")
+            else
+                UIManager.trackEdit("asset")
+            end
+            
+            -- Create notification for activity
+            if NotificationManager then
+                NotificationManager.sendMessage("Selection Changed", 
+                    string.format("Now editing: %s", selectedItem.Name), "INFO")
+            end
+        end
+    end)
     
     -- Start auto-refresh
     UIManager.startAutoRefresh()
@@ -795,6 +1069,7 @@ function UIManager.setModuleReferences(modules)
     ConnectionMonitor = modules.ConnectionMonitor
     NotificationManager = modules.NotificationManager
     ConflictResolver = modules.ConflictResolver
+    TaskManager = modules.TaskManager
     
     print("[TCE] UI module references set")
 end
@@ -828,7 +1103,9 @@ function UIManager.refresh()
     if currentTab == "overview" then
         UIManager.refreshOverview()
     elseif currentTab == "progress" then
-        -- Placeholder for future live data refresh
+        UIManager.refreshProgress()
+    elseif currentTab == "tasks" then
+        UIManager.refreshTasks()
     elseif currentTab == "permissions" then
         UIManager.refreshPermissions()
     elseif currentTab == "assets" then
@@ -1047,6 +1324,1538 @@ function UIManager.refreshAssets()
             conflictLabel.Text = "Edit Conflicts (" .. conflictCount .. " active)"
         end
     end
+end
+
+--[[
+Refreshes the Tasks panel with current task information.
+]]
+function UIManager.refreshTasks()
+    if not contentPanels.tasks or not TaskManager then return end
+    
+    -- Update stats display
+    local statsLabel = contentPanels.tasks:FindFirstChild("StatsLabel")
+    if statsLabel then
+        local stats = TaskManager.getTaskStats()
+        statsLabel.Text = string.format("Total: %d | Mine: %d", stats.total, stats.myTasks)
+    end
+    
+    -- Update task list
+    local tasksListFrame = contentPanels.tasks:FindFirstChild("TasksList")
+    if not tasksListFrame then return end
+    
+    local tasksListLabel = tasksListFrame:FindFirstChild("TasksListLabel")
+    local tasksScrollFrame = tasksListFrame:FindFirstChild("TasksScroll")
+    
+    if not tasksScrollFrame then return end
+    
+    -- Clear existing task entries
+    for _, child in pairs(tasksScrollFrame:GetChildren()) do
+        if child.Name:match("^Task_") then
+            child:Destroy()
+        end
+    end
+    
+    -- Get tasks (showing all by default)
+    local allTasks = TaskManager.getTasks()
+    local displayTasks = {}
+    
+    -- Apply basic filtering - show pending/in-progress tasks first
+    for _, task in ipairs(allTasks) do
+        if task.status ~= "Completed" and task.status ~= "Cancelled" then
+            table.insert(displayTasks, task)
+        end
+    end
+    
+    -- Update header
+    if tasksListLabel then
+        tasksListLabel.Text = string.format("📝 Active Tasks (%d)", #displayTasks)
+    end
+    
+    -- Create task entries
+    local yOffset = 0
+    for i, task in ipairs(displayTasks) do
+        if i <= 20 then -- Limit to 20 tasks for performance
+            local taskEntry = createRoundedFrame(tasksScrollFrame, {
+                Name = "Task_" .. task.id,
+                Size = UDim2.new(1, -10, 0, 60),
+                Position = UDim2.new(0, 5, 0, yOffset),
+                BackgroundColor3 = UI_CONSTANTS.COLORS.SECONDARY_BG
+            })
+            
+            -- Make task entry clickable
+            local clickDetector = Instance.new("TextButton")
+            clickDetector.Name = "ClickDetector"
+            clickDetector.Parent = taskEntry
+            clickDetector.Size = UDim2.new(1, 0, 1, 0)
+            clickDetector.Position = UDim2.new(0, 0, 0, 0)
+            clickDetector.BackgroundTransparency = 1
+            clickDetector.Text = ""
+            clickDetector.ZIndex = 10
+            
+            -- Add hover effect
+            clickDetector.MouseEnter:Connect(function()
+                local hoverTween = TweenService:Create(taskEntry, TweenInfo.new(0.2), {BackgroundColor3 = UI_CONSTANTS.COLORS.ACCENT_BLUE})
+                hoverTween:Play()
+            end)
+            
+            clickDetector.MouseLeave:Connect(function()
+                local normalTween = TweenService:Create(taskEntry, TweenInfo.new(0.2), {BackgroundColor3 = UI_CONSTANTS.COLORS.SECONDARY_BG})
+                normalTween:Play()
+            end)
+            
+            -- Add click handler to open edit dialog
+            clickDetector.MouseButton1Click:Connect(function()
+                UIManager.showEditTaskDialog(task)
+            end)
+            
+            -- Priority indicator
+            local priorityColors = {
+                Critical = UI_CONSTANTS.COLORS.ERROR_RED,
+                High = UI_CONSTANTS.COLORS.ACCENT_MAGENTA,
+                Medium = UI_CONSTANTS.COLORS.ACCENT_BLUE,
+                Low = UI_CONSTANTS.COLORS.TEXT_SECONDARY
+            }
+            
+            local priorityDot = createStatusIndicator(taskEntry, {
+                Name = "PriorityDot",
+                Position = UDim2.new(0, 8, 0, 8),
+                Color = priorityColors[task.priority] or UI_CONSTANTS.COLORS.ACCENT_BLUE
+            })
+            
+            -- Task title
+            local titleLabel = Instance.new("TextLabel")
+            titleLabel.Name = "TitleLabel"
+            titleLabel.Parent = taskEntry
+            titleLabel.Size = UDim2.new(0.6, -30, 0, 20)
+            titleLabel.Position = UDim2.new(0, 25, 0, 5)
+            titleLabel.BackgroundTransparency = 1
+            titleLabel.Text = task.title
+            titleLabel.TextColor3 = UI_CONSTANTS.COLORS.TEXT_PRIMARY
+            titleLabel.TextScaled = true
+            titleLabel.Font = UI_CONSTANTS.FONTS.MAIN
+            titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+            titleLabel.TextTruncate = Enum.TextTruncate.AtEnd
+            
+            -- Task status
+            local statusColors = {
+                Todo = UI_CONSTANTS.COLORS.TEXT_SECONDARY,
+                InProgress = UI_CONSTANTS.COLORS.ACCENT_TEAL,
+                Review = UI_CONSTANTS.COLORS.ACCENT_PURPLE,
+                Completed = UI_CONSTANTS.COLORS.SUCCESS_GREEN,
+                Cancelled = UI_CONSTANTS.COLORS.ERROR_RED
+            }
+            
+            local statusLabel = Instance.new("TextLabel")
+            statusLabel.Name = "StatusLabel"
+            statusLabel.Parent = taskEntry
+            statusLabel.Size = UDim2.new(0.3, 0, 0, 18)
+            statusLabel.Position = UDim2.new(0.6, 5, 0, 6)
+            statusLabel.BackgroundColor3 = statusColors[task.status] or UI_CONSTANTS.COLORS.TEXT_SECONDARY
+            statusLabel.BorderSizePixel = 0
+            statusLabel.Text = task.status
+            statusLabel.TextColor3 = UI_CONSTANTS.COLORS.TEXT_PRIMARY
+            statusLabel.TextScaled = true
+            statusLabel.Font = UI_CONSTANTS.FONTS.MAIN
+            statusLabel.TextXAlignment = Enum.TextXAlignment.Center
+            
+            -- Round status label
+            local statusCorner = Instance.new("UICorner")
+            statusCorner.CornerRadius = UDim.new(0, 6)
+            statusCorner.Parent = statusLabel
+            
+            -- Assigned user and due date
+            local assignedText = "👤 Unassigned"
+            if task.assignedTo then
+                local assigneeName = "Unknown User"
+                local localPlayer = Players and Players.LocalPlayer
+                if localPlayer and task.assignedTo == localPlayer.UserId then
+                    assigneeName = "You"
+                elseif ConnectionMonitor and ConnectionMonitor.getActiveUsers then
+                    local activeUsers = ConnectionMonitor.getActiveUsers()
+                    for _, user in ipairs(activeUsers) do
+                        if user.userId == task.assignedTo then
+                            assigneeName = user.name
+                            break
+                        end
+                    end
+                    if assigneeName == "Unknown User" then
+                        assigneeName = "User " .. task.assignedTo
+                    end
+                else
+                    assigneeName = "User " .. task.assignedTo
+                end
+                assignedText = "👤 " .. assigneeName
+            end
+            
+            -- Add task type and description to the assigned text
+            local descriptionText = ""
+            if task.description and task.description ~= "" then
+                descriptionText = " • " .. task.description
+            end
+            
+            if task.taskType then
+                assignedText = assignedText .. " • 📝 " .. task.taskType
+            end
+            
+            assignedText = assignedText .. descriptionText
+            
+            local assignedLabel = Instance.new("TextLabel")
+            assignedLabel.Name = "AssignedLabel"
+            assignedLabel.Parent = taskEntry
+            assignedLabel.Size = UDim2.new(0.6, -30, 0, 15)
+            assignedLabel.Position = UDim2.new(0, 25, 0, 25)
+            assignedLabel.BackgroundTransparency = 1
+            assignedLabel.Text = assignedText
+            assignedLabel.TextColor3 = UI_CONSTANTS.COLORS.TEXT_SECONDARY
+            assignedLabel.TextScaled = true
+            assignedLabel.Font = UI_CONSTANTS.FONTS.MAIN
+            assignedLabel.TextXAlignment = Enum.TextXAlignment.Left
+            assignedLabel.TextTruncate = Enum.TextTruncate.AtEnd
+            
+            -- Due date if exists
+            if task.dueDate then
+                local currentTime = os.time()
+                local timeUntilDue = task.dueDate - currentTime
+                local daysUntilDue = math.floor(timeUntilDue / 86400)
+                local hoursUntilDue = math.floor(timeUntilDue / 3600)
+                
+                local dueDateText = ""
+                local dueDateColor = UI_CONSTANTS.COLORS.TEXT_SECONDARY
+                
+                if timeUntilDue < 0 then
+                    -- Overdue
+                    dueDateText = "🔴 OVERDUE"
+                    dueDateColor = UI_CONSTANTS.COLORS.ERROR_RED
+                elseif daysUntilDue == 0 and hoursUntilDue > 0 then
+                    -- Due today
+                    dueDateText = "🟡 Due in " .. hoursUntilDue .. "h"
+                    dueDateColor = UI_CONSTANTS.COLORS.ACCENT_MAGENTA
+                elseif daysUntilDue == 0 then
+                    -- Due very soon
+                    dueDateText = "🔴 Due now!"
+                    dueDateColor = UI_CONSTANTS.COLORS.ERROR_RED
+                elseif daysUntilDue == 1 then
+                    -- Due tomorrow
+                    dueDateText = "🟠 Tomorrow"
+                    dueDateColor = UI_CONSTANTS.COLORS.ACCENT_BLUE
+                elseif daysUntilDue <= 3 then
+                    -- Due soon
+                    dueDateText = "🟡 " .. daysUntilDue .. " days"
+                    dueDateColor = UI_CONSTANTS.COLORS.ACCENT_TEAL
+                else
+                    -- Due later
+                    dueDateText = "📅 " .. os.date("%m/%d", task.dueDate)
+                    dueDateColor = UI_CONSTANTS.COLORS.TEXT_SECONDARY
+                end
+                
+                local dueDateLabel = Instance.new("TextLabel")
+                dueDateLabel.Name = "DueDateLabel"
+                dueDateLabel.Parent = taskEntry
+                dueDateLabel.Size = UDim2.new(0.3, 0, 0, 15)
+                dueDateLabel.Position = UDim2.new(0.6, 5, 0, 25)
+                dueDateLabel.BackgroundTransparency = 1
+                dueDateLabel.Text = dueDateText
+                dueDateLabel.TextColor3 = dueDateColor
+                dueDateLabel.TextScaled = true
+                dueDateLabel.Font = UI_CONSTANTS.FONTS.MAIN
+                dueDateLabel.TextXAlignment = Enum.TextXAlignment.Right
+            end
+            
+            -- Comments indicator (if any)
+            if task.comments and #task.comments > 0 then
+                local commentsLabel = Instance.new("TextLabel")
+                commentsLabel.Name = "CommentsLabel"
+                commentsLabel.Parent = taskEntry
+                commentsLabel.Size = UDim2.new(0, 30, 0, 15)
+                commentsLabel.Position = UDim2.new(1, -35, 0, 40)
+                commentsLabel.BackgroundTransparency = 1
+                commentsLabel.Text = "💬 " .. #task.comments
+                commentsLabel.TextColor3 = UI_CONSTANTS.COLORS.ACCENT_BLUE
+                commentsLabel.TextScaled = true
+                commentsLabel.Font = UI_CONSTANTS.FONTS.MAIN
+                commentsLabel.TextXAlignment = Enum.TextXAlignment.Center
+            end
+            
+            -- Progress bar (always show, even at 0%)
+            local progressBg = Instance.new("Frame")
+            progressBg.Name = "ProgressBg"
+            progressBg.Parent = taskEntry
+            progressBg.Size = UDim2.new(0.7, 0, 0, 6)
+            progressBg.Position = UDim2.new(0, 8, 1, -12)
+            progressBg.BackgroundColor3 = UI_CONSTANTS.COLORS.PRIMARY_BG
+            progressBg.BorderSizePixel = 0
+            
+            local progressCorner = Instance.new("UICorner")
+            progressCorner.CornerRadius = UDim.new(0, 3)
+            progressCorner.Parent = progressBg
+            
+            -- Progress fill with color based on progress
+            local progressColor = UI_CONSTANTS.COLORS.TEXT_SECONDARY
+            if task.progress >= 100 then
+                progressColor = UI_CONSTANTS.COLORS.SUCCESS_GREEN
+            elseif task.progress >= 75 then
+                progressColor = UI_CONSTANTS.COLORS.ACCENT_TEAL
+            elseif task.progress >= 50 then
+                progressColor = UI_CONSTANTS.COLORS.ACCENT_BLUE
+            elseif task.progress >= 25 then
+                progressColor = UI_CONSTANTS.COLORS.ACCENT_PURPLE
+            elseif task.progress > 0 then
+                progressColor = UI_CONSTANTS.COLORS.ACCENT_MAGENTA
+            end
+            
+            if task.progress > 0 then
+                local progressFill = Instance.new("Frame")
+                progressFill.Name = "ProgressFill"
+                progressFill.Parent = progressBg
+                progressFill.Size = UDim2.new(math.max(0.05, task.progress / 100), 0, 1, 0)
+                progressFill.Position = UDim2.new(0, 0, 0, 0)
+                progressFill.BackgroundColor3 = progressColor
+                progressFill.BorderSizePixel = 0
+                
+                local fillCorner = Instance.new("UICorner")
+                fillCorner.CornerRadius = UDim.new(0, 3)
+                fillCorner.Parent = progressFill
+            end
+            
+            -- Progress percentage text
+            local progressLabel = Instance.new("TextLabel")
+            progressLabel.Name = "ProgressLabel"
+            progressLabel.Parent = taskEntry
+            progressLabel.Size = UDim2.new(0, 40, 0, 12)
+            progressLabel.Position = UDim2.new(1, -45, 1, -14)
+            progressLabel.BackgroundTransparency = 1
+            progressLabel.Text = task.progress .. "%"
+            progressLabel.TextColor3 = task.progress >= 100 and UI_CONSTANTS.COLORS.SUCCESS_GREEN or UI_CONSTANTS.COLORS.TEXT_SECONDARY
+            progressLabel.TextScaled = true
+            progressLabel.Font = UI_CONSTANTS.FONTS.MAIN
+            progressLabel.TextXAlignment = Enum.TextXAlignment.Center
+            
+            yOffset = yOffset + 65
+        end
+    end
+    
+    -- Update canvas size for scrolling
+    tasksScrollFrame.CanvasSize = UDim2.new(0, 0, 0, math.max(yOffset, tasksScrollFrame.AbsoluteSize.Y))
+end
+
+--[[
+Shows a dialog for creating a new task.
+]]
+function UIManager.showNewTaskDialog()
+    if not TaskManager then
+        print("[TCE] TaskManager not available")
+        return
+    end
+    
+    -- Create modal overlay
+    local overlay = Instance.new("Frame")
+    overlay.Name = "TaskDialogOverlay"
+    overlay.Parent = dockWidget
+    overlay.Size = UDim2.new(1, 0, 1, 0)
+    overlay.Position = UDim2.new(0, 0, 0, 0)
+    overlay.BackgroundColor3 = Color3.new(0, 0, 0)
+    overlay.BackgroundTransparency = 0.5
+    overlay.BorderSizePixel = 0
+    overlay.ZIndex = 100
+    
+    -- Create dialog frame
+    local dialog = createRoundedFrame(overlay, {
+        Name = "NewTaskDialog",
+        Size = UDim2.new(0, 400, 0, 580),
+        Position = UDim2.new(0.5, -200, 0.5, -290),
+        BackgroundColor3 = UI_CONSTANTS.COLORS.PRIMARY_BG,
+        Glow = true,
+        GlowColor = UI_CONSTANTS.COLORS.ACCENT_PURPLE
+    })
+    dialog.ZIndex = 101
+    
+    -- Dialog title
+    local titleLabel = Instance.new("TextLabel")
+    titleLabel.Name = "TitleLabel"
+    titleLabel.Parent = dialog
+    titleLabel.Size = UDim2.new(1, -40, 0, 30)
+    titleLabel.Position = UDim2.new(0, 20, 0, 15)
+    titleLabel.BackgroundTransparency = 1
+    titleLabel.Text = "➕ Create New Task"
+    titleLabel.TextColor3 = UI_CONSTANTS.COLORS.TEXT_PRIMARY
+    titleLabel.TextScaled = true
+    titleLabel.Font = UI_CONSTANTS.FONTS.HEADER
+    titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+    titleLabel.ZIndex = 102
+    
+    -- Close button
+    local closeButton = createStyledButton(dialog, {
+        Name = "CloseButton",
+        Text = "✕",
+        Size = UDim2.new(0, 25, 0, 25),
+        Position = UDim2.new(1, -35, 0, 10),
+        BackgroundColor3 = UI_CONSTANTS.COLORS.ERROR_RED
+    })
+    closeButton.ZIndex = 102
+    
+    closeButton.MouseButton1Click:Connect(function()
+        overlay:Destroy()
+    end)
+    
+    -- Task title input
+    local titleFrame = Instance.new("Frame")
+    titleFrame.Name = "TitleFrame"
+    titleFrame.Parent = dialog
+    titleFrame.Size = UDim2.new(1, -40, 0, 60)
+    titleFrame.Position = UDim2.new(0, 20, 0, 55)
+    titleFrame.BackgroundTransparency = 1
+    titleFrame.ZIndex = 102
+    
+    local titleInputLabel = Instance.new("TextLabel")
+    titleInputLabel.Name = "TitleInputLabel"
+    titleInputLabel.Parent = titleFrame
+    titleInputLabel.Size = UDim2.new(1, 0, 0, 20)
+    titleInputLabel.Position = UDim2.new(0, 0, 0, 0)
+    titleInputLabel.BackgroundTransparency = 1
+    titleInputLabel.Text = "Task Title:"
+    titleInputLabel.TextColor3 = UI_CONSTANTS.COLORS.TEXT_PRIMARY
+    titleInputLabel.TextScaled = true
+    titleInputLabel.Font = UI_CONSTANTS.FONTS.MAIN
+    titleInputLabel.TextXAlignment = Enum.TextXAlignment.Left
+    titleInputLabel.ZIndex = 102
+    
+    local titleInput = Instance.new("TextBox")
+    titleInput.Name = "TitleInput"
+    titleInput.Parent = titleFrame
+    titleInput.Size = UDim2.new(1, 0, 0, 30)
+    titleInput.Position = UDim2.new(0, 0, 0, 25)
+    titleInput.BackgroundColor3 = UI_CONSTANTS.COLORS.SECONDARY_BG
+    titleInput.BorderSizePixel = 0
+    titleInput.Text = ""
+    titleInput.PlaceholderText = "Enter task title..."
+    titleInput.TextColor3 = UI_CONSTANTS.COLORS.TEXT_PRIMARY
+    titleInput.PlaceholderColor3 = UI_CONSTANTS.COLORS.TEXT_SECONDARY
+    titleInput.TextScaled = true
+    titleInput.Font = UI_CONSTANTS.FONTS.MAIN
+    titleInput.TextXAlignment = Enum.TextXAlignment.Left
+    titleInput.ZIndex = 102
+    
+    local titleInputCorner = Instance.new("UICorner")
+    titleInputCorner.CornerRadius = UDim.new(0, 4)
+    titleInputCorner.Parent = titleInput
+    
+    -- Description input
+    local descFrame = Instance.new("Frame")
+    descFrame.Name = "DescFrame"
+    descFrame.Parent = dialog
+    descFrame.Size = UDim2.new(1, -40, 0, 80)
+    descFrame.Position = UDim2.new(0, 20, 0, 125)
+    descFrame.BackgroundTransparency = 1
+    descFrame.ZIndex = 102
+    
+    local descInputLabel = Instance.new("TextLabel")
+    descInputLabel.Name = "DescInputLabel"
+    descInputLabel.Parent = descFrame
+    descInputLabel.Size = UDim2.new(1, 0, 0, 20)
+    descInputLabel.Position = UDim2.new(0, 0, 0, 0)
+    descInputLabel.BackgroundTransparency = 1
+    descInputLabel.Text = "Description:"
+    descInputLabel.TextColor3 = UI_CONSTANTS.COLORS.TEXT_PRIMARY
+    descInputLabel.TextScaled = true
+    descInputLabel.Font = UI_CONSTANTS.FONTS.MAIN
+    descInputLabel.TextXAlignment = Enum.TextXAlignment.Left
+    descInputLabel.ZIndex = 102
+    
+    local descInput = Instance.new("TextBox")
+    descInput.Name = "DescInput"
+    descInput.Parent = descFrame
+    descInput.Size = UDim2.new(1, 0, 0, 50)
+    descInput.Position = UDim2.new(0, 0, 0, 25)
+    descInput.BackgroundColor3 = UI_CONSTANTS.COLORS.SECONDARY_BG
+    descInput.BorderSizePixel = 0
+    descInput.Text = ""
+    descInput.PlaceholderText = "Enter task description..."
+    descInput.TextColor3 = UI_CONSTANTS.COLORS.TEXT_PRIMARY
+    descInput.PlaceholderColor3 = UI_CONSTANTS.COLORS.TEXT_SECONDARY
+    descInput.TextScaled = true
+    descInput.Font = UI_CONSTANTS.FONTS.MAIN
+    descInput.TextXAlignment = Enum.TextXAlignment.Left
+    descInput.TextYAlignment = Enum.TextYAlignment.Top
+    descInput.TextWrapped = true
+    descInput.MultiLine = true
+    descInput.ZIndex = 102
+    
+    local descInputCorner = Instance.new("UICorner")
+    descInputCorner.CornerRadius = UDim.new(0, 4)
+    descInputCorner.Parent = descInput
+    
+    -- Priority selection
+    local priorityFrame = Instance.new("Frame")
+    priorityFrame.Name = "PriorityFrame"
+    priorityFrame.Parent = dialog
+    priorityFrame.Size = UDim2.new(1, -40, 0, 60)
+    priorityFrame.Position = UDim2.new(0, 20, 0, 215)
+    priorityFrame.BackgroundTransparency = 1
+    priorityFrame.ZIndex = 102
+    
+    local priorityLabel = Instance.new("TextLabel")
+    priorityLabel.Name = "PriorityLabel"
+    priorityLabel.Parent = priorityFrame
+    priorityLabel.Size = UDim2.new(1, 0, 0, 20)
+    priorityLabel.Position = UDim2.new(0, 0, 0, 0)
+    priorityLabel.BackgroundTransparency = 1
+    priorityLabel.Text = "Priority:"
+    priorityLabel.TextColor3 = UI_CONSTANTS.COLORS.TEXT_PRIMARY
+    priorityLabel.TextScaled = true
+    priorityLabel.Font = UI_CONSTANTS.FONTS.MAIN
+    priorityLabel.TextXAlignment = Enum.TextXAlignment.Left
+    priorityLabel.ZIndex = 102
+    
+    local selectedPriority = "Medium"
+    local priorityButtons = {}
+    local priorities = {"Critical", "High", "Medium", "Low"}
+    local priorityColors = {
+        Critical = UI_CONSTANTS.COLORS.ERROR_RED,
+        High = UI_CONSTANTS.COLORS.ACCENT_MAGENTA,
+        Medium = UI_CONSTANTS.COLORS.ACCENT_BLUE,
+        Low = UI_CONSTANTS.COLORS.TEXT_SECONDARY
+    }
+    
+    for i, priority in ipairs(priorities) do
+        local priorityButton = createStyledButton(priorityFrame, {
+            Name = priority .. "Button",
+            Text = priority,
+            Size = UDim2.new(0.23, 0, 0, 30),
+            Position = UDim2.new((i-1) * 0.25, 0, 0, 25),
+            BackgroundColor3 = priority == selectedPriority and priorityColors[priority] or UI_CONSTANTS.COLORS.SECONDARY_BG
+        })
+        priorityButton.ZIndex = 102
+        
+        priorityButton.MouseButton1Click:Connect(function()
+            selectedPriority = priority
+            -- Update button colors
+            for j, p in ipairs(priorities) do
+                local button = priorityButtons[p]
+                if button then
+                    local targetColor = (p == selectedPriority) and priorityColors[p] or UI_CONSTANTS.COLORS.SECONDARY_BG
+                    local tween = TweenService:Create(button, TweenInfo.new(0.2), {BackgroundColor3 = targetColor})
+                    tween:Play()
+                end
+            end
+        end)
+        
+        priorityButtons[priority] = priorityButton
+    end
+    
+    -- User Assignment section
+    local assignFrame = Instance.new("Frame")
+    assignFrame.Name = "AssignFrame"
+    assignFrame.Parent = dialog
+    assignFrame.Size = UDim2.new(1, -40, 0, 60)
+    assignFrame.Position = UDim2.new(0, 20, 0, 285)
+    assignFrame.BackgroundTransparency = 1
+    assignFrame.ZIndex = 102
+    
+    local assignLabel = Instance.new("TextLabel")
+    assignLabel.Name = "AssignLabel"
+    assignLabel.Parent = assignFrame
+    assignLabel.Size = UDim2.new(1, 0, 0, 20)
+    assignLabel.Position = UDim2.new(0, 0, 0, 0)
+    assignLabel.BackgroundTransparency = 1
+    assignLabel.Text = "Assign to:"
+    assignLabel.TextColor3 = UI_CONSTANTS.COLORS.TEXT_PRIMARY
+    assignLabel.TextScaled = true
+    assignLabel.Font = UI_CONSTANTS.FONTS.MAIN
+    assignLabel.TextXAlignment = Enum.TextXAlignment.Left
+    assignLabel.ZIndex = 102
+    
+    -- Get available users
+    local availableUsers = {{userId = 0, name = "Unassigned"}}
+    if ConnectionMonitor and ConnectionMonitor.getActiveUsers then
+        local activeUsers = ConnectionMonitor.getActiveUsers()
+        for _, user in ipairs(activeUsers) do
+            table.insert(availableUsers, {userId = user.userId, name = user.name})
+        end
+    end
+    
+    local selectedUserId = 0
+    local assignButtons = {}
+    
+    for i, user in ipairs(availableUsers) do
+        if i <= 4 then -- Show max 4 users in dialog
+            local userButton = createStyledButton(assignFrame, {
+                Name = user.name .. "Button",
+                Text = user.name,
+                Size = UDim2.new(0.23, 0, 0, 30),
+                Position = UDim2.new((i-1) * 0.25, 0, 0, 25),
+                BackgroundColor3 = selectedUserId == user.userId and UI_CONSTANTS.COLORS.ACCENT_TEAL or UI_CONSTANTS.COLORS.SECONDARY_BG
+            })
+            userButton.ZIndex = 102
+            
+            userButton.MouseButton1Click:Connect(function()
+                selectedUserId = user.userId
+                -- Update button colors
+                for j, u in ipairs(availableUsers) do
+                    local button = assignButtons[u.userId]
+                    if button then
+                        local targetColor = (u.userId == selectedUserId) and UI_CONSTANTS.COLORS.ACCENT_TEAL or UI_CONSTANTS.COLORS.SECONDARY_BG
+                        local tween = TweenService:Create(button, TweenInfo.new(0.2), {BackgroundColor3 = targetColor})
+                        tween:Play()
+                    end
+                end
+            end)
+            
+            assignButtons[user.userId] = userButton
+        end
+    end
+    
+    -- Due Date section
+    local dueDateFrame = Instance.new("Frame")
+    dueDateFrame.Name = "DueDateFrame"
+    dueDateFrame.Parent = dialog
+    dueDateFrame.Size = UDim2.new(1, -40, 0, 60)
+    dueDateFrame.Position = UDim2.new(0, 20, 0, 355)
+    dueDateFrame.BackgroundTransparency = 1
+    dueDateFrame.ZIndex = 102
+    
+    local dueDateLabel = Instance.new("TextLabel")
+    dueDateLabel.Name = "DueDateLabel"
+    dueDateLabel.Parent = dueDateFrame
+    dueDateLabel.Size = UDim2.new(0.5, 0, 0, 20)
+    dueDateLabel.Position = UDim2.new(0, 0, 0, 0)
+    dueDateLabel.BackgroundTransparency = 1
+    dueDateLabel.Text = "Due Date (optional):"
+    dueDateLabel.TextColor3 = UI_CONSTANTS.COLORS.TEXT_PRIMARY
+    dueDateLabel.TextScaled = true
+    dueDateLabel.Font = UI_CONSTANTS.FONTS.MAIN
+    dueDateLabel.TextXAlignment = Enum.TextXAlignment.Left
+    dueDateLabel.ZIndex = 102
+    
+    local dueDateInput = Instance.new("TextBox")
+    dueDateInput.Name = "DueDateInput"
+    dueDateInput.Parent = dueDateFrame
+    dueDateInput.Size = UDim2.new(0.5, -10, 0, 30)
+    dueDateInput.Position = UDim2.new(0.5, 0, 0, 25)
+    dueDateInput.BackgroundColor3 = UI_CONSTANTS.COLORS.SECONDARY_BG
+    dueDateInput.BorderSizePixel = 0
+    dueDateInput.Text = ""
+    dueDateInput.PlaceholderText = "MM/DD/YYYY or days from now..."
+    dueDateInput.TextColor3 = UI_CONSTANTS.COLORS.TEXT_PRIMARY
+    dueDateInput.PlaceholderColor3 = UI_CONSTANTS.COLORS.TEXT_SECONDARY
+    dueDateInput.TextScaled = true
+    dueDateInput.Font = UI_CONSTANTS.FONTS.MAIN
+    dueDateInput.TextXAlignment = Enum.TextXAlignment.Center
+    dueDateInput.ZIndex = 102
+    
+    local dueDateCorner = Instance.new("UICorner")
+    dueDateCorner.CornerRadius = UDim.new(0, 4)
+    dueDateCorner.Parent = dueDateInput
+    
+    -- Quick due date buttons
+    local quickDates = {"1 Day", "3 Days", "1 Week"}
+    for i, dateText in ipairs(quickDates) do
+        local quickButton = createStyledButton(dueDateFrame, {
+            Name = dateText .. "Button",
+            Text = dateText,
+            Size = UDim2.new(0.15, 0, 0, 25),
+            Position = UDim2.new((i-1) * 0.16, 0, 0, 0),
+            BackgroundColor3 = UI_CONSTANTS.COLORS.ACCENT_MAGENTA
+        })
+        quickButton.ZIndex = 102
+        
+        quickButton.MouseButton1Click:Connect(function()
+            local days = 1
+            if dateText == "3 Days" then days = 3
+            elseif dateText == "1 Week" then days = 7 end
+            
+            local futureDate = os.time() + (days * 24 * 60 * 60)
+            dueDateInput.Text = os.date("%m/%d/%Y", futureDate)
+        end)
+    end
+    
+    -- Type selection
+    local typeFrame = Instance.new("Frame")
+    typeFrame.Name = "TypeFrame"
+    typeFrame.Parent = dialog
+    typeFrame.Size = UDim2.new(1, -40, 0, 60)
+    typeFrame.Position = UDim2.new(0, 20, 0, 425)
+    typeFrame.BackgroundTransparency = 1
+    typeFrame.ZIndex = 102
+    
+    local typeLabel = Instance.new("TextLabel")
+    typeLabel.Name = "TypeLabel"
+    typeLabel.Parent = typeFrame
+    typeLabel.Size = UDim2.new(1, 0, 0, 20)
+    typeLabel.Position = UDim2.new(0, 0, 0, 0)
+    typeLabel.BackgroundTransparency = 1
+    typeLabel.Text = "Type:"
+    typeLabel.TextColor3 = UI_CONSTANTS.COLORS.TEXT_PRIMARY
+    typeLabel.TextScaled = true
+    typeLabel.Font = UI_CONSTANTS.FONTS.MAIN
+    typeLabel.TextXAlignment = Enum.TextXAlignment.Left
+    typeLabel.ZIndex = 102
+    
+    local selectedType = "Feature"
+    local typeButtons = {}
+    local types = {"Script", "Build", "Design", "Feature"}
+    
+    for i, taskType in ipairs(types) do
+        local typeButton = createStyledButton(typeFrame, {
+            Name = taskType .. "Button",
+            Text = taskType,
+            Size = UDim2.new(0.23, 0, 0, 30),
+            Position = UDim2.new((i-1) * 0.25, 0, 0, 25),
+            BackgroundColor3 = taskType == selectedType and UI_CONSTANTS.COLORS.ACCENT_PURPLE or UI_CONSTANTS.COLORS.SECONDARY_BG
+        })
+        typeButton.ZIndex = 102
+        
+        typeButton.MouseButton1Click:Connect(function()
+            selectedType = taskType
+            -- Update button colors
+            for j, t in ipairs(types) do
+                local button = typeButtons[t]
+                if button then
+                    local targetColor = (t == selectedType) and UI_CONSTANTS.COLORS.ACCENT_PURPLE or UI_CONSTANTS.COLORS.SECONDARY_BG
+                    local tween = TweenService:Create(button, TweenInfo.new(0.2), {BackgroundColor3 = targetColor})
+                    tween:Play()
+                end
+            end
+        end)
+        
+        typeButtons[taskType] = typeButton
+    end
+    
+    -- Action buttons
+    local buttonFrame = Instance.new("Frame")
+    buttonFrame.Name = "ButtonFrame"
+    buttonFrame.Parent = dialog
+    buttonFrame.Size = UDim2.new(1, -40, 0, 40)
+    buttonFrame.Position = UDim2.new(0, 20, 0, 530)
+    buttonFrame.BackgroundTransparency = 1
+    buttonFrame.ZIndex = 102
+    
+    local cancelButton = createStyledButton(buttonFrame, {
+        Name = "CancelButton",
+        Text = "Cancel",
+        Size = UDim2.new(0.45, 0, 1, 0),
+        Position = UDim2.new(0, 0, 0, 0),
+        BackgroundColor3 = UI_CONSTANTS.COLORS.TEXT_SECONDARY
+    })
+    cancelButton.ZIndex = 102
+    
+    cancelButton.MouseButton1Click:Connect(function()
+        overlay:Destroy()
+    end)
+    
+    local createButton = createStyledButton(buttonFrame, {
+        Name = "CreateButton",
+        Text = "Create Task",
+        Size = UDim2.new(0.45, 0, 1, 0),
+        Position = UDim2.new(0.55, 0, 0, 0),
+        BackgroundColor3 = UI_CONSTANTS.COLORS.SUCCESS_GREEN
+    })
+    createButton.ZIndex = 102
+    
+    createButton.MouseButton1Click:Connect(function()
+        local title = titleInput.Text:gsub("^%s*(.-)%s*$", "%1") -- Trim whitespace
+        if title == "" then
+            -- Show error - title required
+            titleInput.BackgroundColor3 = UI_CONSTANTS.COLORS.ERROR_RED
+            wait(0.5)
+            titleInput.BackgroundColor3 = UI_CONSTANTS.COLORS.SECONDARY_BG
+            return
+        end
+        
+        -- Parse due date
+        local dueDate = nil
+        local dueDateText = dueDateInput.Text:gsub("^%s*(.-)%s*$", "%1")
+        if dueDateText ~= "" then
+            -- Try parsing MM/DD/YYYY format
+            local month, day, year = dueDateText:match("(%d+)/(%d+)/(%d+)")
+            if month and day and year then
+                dueDate = os.time({year = tonumber(year), month = tonumber(month), day = tonumber(day), hour = 23, min = 59, sec = 59})
+            else
+                -- Try parsing as number of days from now
+                local days = tonumber(dueDateText)
+                if days then
+                    dueDate = os.time() + (days * 24 * 60 * 60)
+                end
+            end
+        end
+        
+        -- Create the task
+        local taskData = {
+            title = title,
+            description = descInput.Text,
+            assignedTo = selectedUserId > 0 and selectedUserId or nil,
+            dueDate = dueDate,
+            priority = selectedPriority,
+            taskType = selectedType,
+            tags = {}
+        }
+        
+        local taskId, error = TaskManager.createTask(taskData)
+        
+        if taskId then
+            print("[TCE] Created new task:", taskId, "-", title)
+            overlay:Destroy()
+            
+            -- Refresh the tasks panel
+            if currentTab == "tasks" then
+                UIManager.refreshTasks()
+            end
+            
+            -- Show success notification
+            if NotificationManager then
+                NotificationManager.sendMessage("Task Created", 
+                    string.format("Successfully created task: %s", title), "SUCCESS")
+            end
+        else
+            print("[TCE] Failed to create task:", error)
+            -- Show error feedback
+            createButton.BackgroundColor3 = UI_CONSTANTS.COLORS.ERROR_RED
+            createButton.Text = "Error: " .. (error or "Unknown")
+            wait(2)
+            createButton.BackgroundColor3 = UI_CONSTANTS.COLORS.SUCCESS_GREEN
+            createButton.Text = "Create Task"
+        end
+    end)
+    
+    -- Focus on title input
+    titleInput:CaptureFocus()
+end
+
+--[[
+Shows a dialog for editing an existing task.
+@param task table: The task to edit
+]]
+function UIManager.showEditTaskDialog(task)
+    if not TaskManager or not task then
+        print("[TCE] TaskManager or task not available")
+        return
+    end
+    
+    -- Create modal overlay
+    local overlay = Instance.new("Frame")
+    overlay.Name = "EditTaskDialogOverlay"
+    overlay.Parent = dockWidget
+    overlay.Size = UDim2.new(1, 0, 1, 0)
+    overlay.Position = UDim2.new(0, 0, 0, 0)
+    overlay.BackgroundColor3 = Color3.new(0, 0, 0)
+    overlay.BackgroundTransparency = 0.5
+    overlay.BorderSizePixel = 0
+    overlay.ZIndex = 100
+    
+    -- Create dialog frame (larger for edit dialog)
+    local dialog = createRoundedFrame(overlay, {
+        Name = "EditTaskDialog",
+        Size = UDim2.new(0, 450, 0, 700),
+        Position = UDim2.new(0.5, -225, 0.5, -350),
+        BackgroundColor3 = UI_CONSTANTS.COLORS.PRIMARY_BG,
+        Glow = true,
+        GlowColor = UI_CONSTANTS.COLORS.ACCENT_BLUE
+    })
+    dialog.ZIndex = 101
+    
+    -- Dialog title
+    local titleLabel = Instance.new("TextLabel")
+    titleLabel.Name = "TitleLabel"
+    titleLabel.Parent = dialog
+    titleLabel.Size = UDim2.new(1, -70, 0, 30)
+    titleLabel.Position = UDim2.new(0, 20, 0, 15)
+    titleLabel.BackgroundTransparency = 1
+    titleLabel.Text = "✏️ Edit Task: " .. task.title
+    titleLabel.TextColor3 = UI_CONSTANTS.COLORS.TEXT_PRIMARY
+    titleLabel.TextScaled = true
+    titleLabel.Font = UI_CONSTANTS.FONTS.HEADER
+    titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+    titleLabel.ZIndex = 102
+    
+    -- Close button
+    local closeButton = createStyledButton(dialog, {
+        Name = "CloseButton",
+        Text = "✕",
+        Size = UDim2.new(0, 25, 0, 25),
+        Position = UDim2.new(1, -35, 0, 10),
+        BackgroundColor3 = UI_CONSTANTS.COLORS.ERROR_RED
+    })
+    closeButton.ZIndex = 102
+    
+    closeButton.MouseButton1Click:Connect(function()
+        overlay:Destroy()
+    end)
+    
+    -- Delete button
+    local deleteButton = createStyledButton(dialog, {
+        Name = "DeleteButton",
+        Text = "🗑️",
+        Size = UDim2.new(0, 25, 0, 25),
+        Position = UDim2.new(1, -65, 0, 10),
+        BackgroundColor3 = UI_CONSTANTS.COLORS.ERROR_RED
+    })
+    deleteButton.ZIndex = 102
+    
+    deleteButton.MouseButton1Click:Connect(function()
+        -- Confirmation dialog
+        local confirmOverlay = Instance.new("Frame")
+        confirmOverlay.Name = "ConfirmOverlay"
+        confirmOverlay.Parent = dockWidget
+        confirmOverlay.Size = UDim2.new(1, 0, 1, 0)
+        confirmOverlay.Position = UDim2.new(0, 0, 0, 0)
+        confirmOverlay.BackgroundColor3 = Color3.new(0, 0, 0)
+        confirmOverlay.BackgroundTransparency = 0.7
+        confirmOverlay.BorderSizePixel = 0
+        confirmOverlay.ZIndex = 200
+        
+        local confirmDialog = createRoundedFrame(confirmOverlay, {
+            Name = "ConfirmDialog",
+            Size = UDim2.new(0, 300, 0, 150),
+            Position = UDim2.new(0.5, -150, 0.5, -75),
+            BackgroundColor3 = UI_CONSTANTS.COLORS.PRIMARY_BG,
+            Glow = true,
+            GlowColor = UI_CONSTANTS.COLORS.ERROR_RED
+        })
+        confirmDialog.ZIndex = 201
+        
+        local confirmLabel = Instance.new("TextLabel")
+        confirmLabel.Name = "ConfirmLabel"
+        confirmLabel.Parent = confirmDialog
+        confirmLabel.Size = UDim2.new(1, -20, 0, 60)
+        confirmLabel.Position = UDim2.new(0, 10, 0, 20)
+        confirmLabel.BackgroundTransparency = 1
+        confirmLabel.Text = "Are you sure you want to delete this task?\n\n\"" .. task.title .. "\""
+        confirmLabel.TextColor3 = UI_CONSTANTS.COLORS.TEXT_PRIMARY
+        confirmLabel.TextScaled = true
+        confirmLabel.Font = UI_CONSTANTS.FONTS.MAIN
+        confirmLabel.TextXAlignment = Enum.TextXAlignment.Center
+        confirmLabel.TextWrapped = true
+        confirmLabel.ZIndex = 202
+        
+        local confirmCancelButton = createStyledButton(confirmDialog, {
+            Name = "ConfirmCancelButton",
+            Text = "Cancel",
+            Size = UDim2.new(0.4, 0, 0, 35),
+            Position = UDim2.new(0.05, 0, 0, 100),
+            BackgroundColor3 = UI_CONSTANTS.COLORS.TEXT_SECONDARY
+        })
+        confirmCancelButton.ZIndex = 202
+        
+        local confirmDeleteButton = createStyledButton(confirmDialog, {
+            Name = "ConfirmDeleteButton",
+            Text = "Delete",
+            Size = UDim2.new(0.4, 0, 0, 35),
+            Position = UDim2.new(0.55, 0, 0, 100),
+            BackgroundColor3 = UI_CONSTANTS.COLORS.ERROR_RED
+        })
+        confirmDeleteButton.ZIndex = 202
+        
+        confirmCancelButton.MouseButton1Click:Connect(function()
+            confirmOverlay:Destroy()
+        end)
+        
+        confirmDeleteButton.MouseButton1Click:Connect(function()
+            local success, error = TaskManager.deleteTask(task.id)
+            if success then
+                confirmOverlay:Destroy()
+                overlay:Destroy()
+                if currentTab == "tasks" then
+                    UIManager.refreshTasks()
+                end
+                if NotificationManager then
+                    NotificationManager.sendMessage("Task Deleted", 
+                        string.format("Deleted task: %s", task.title), "WARNING")
+                end
+            else
+                print("[TCE] Failed to delete task:", error)
+            end
+        end)
+    end)
+    
+    -- Task status and progress section
+    local statusFrame = Instance.new("Frame")
+    statusFrame.Name = "StatusFrame"
+    statusFrame.Parent = dialog
+    statusFrame.Size = UDim2.new(1, -40, 0, 80)
+    statusFrame.Position = UDim2.new(0, 20, 0, 55)
+    statusFrame.BackgroundTransparency = 1
+    statusFrame.ZIndex = 102
+    
+    local statusLabel = Instance.new("TextLabel")
+    statusLabel.Name = "StatusLabel"
+    statusLabel.Parent = statusFrame
+    statusLabel.Size = UDim2.new(0.5, 0, 0, 20)
+    statusLabel.Position = UDim2.new(0, 0, 0, 0)
+    statusLabel.BackgroundTransparency = 1
+    statusLabel.Text = "Status:"
+    statusLabel.TextColor3 = UI_CONSTANTS.COLORS.TEXT_PRIMARY
+    statusLabel.TextScaled = true
+    statusLabel.Font = UI_CONSTANTS.FONTS.MAIN
+    statusLabel.TextXAlignment = Enum.TextXAlignment.Left
+    statusLabel.ZIndex = 102
+    
+    local progressLabel = Instance.new("TextLabel")
+    progressLabel.Name = "ProgressLabel"
+    progressLabel.Parent = statusFrame
+    progressLabel.Size = UDim2.new(0.5, 0, 0, 20)
+    progressLabel.Position = UDim2.new(0.5, 0, 0, 0)
+    progressLabel.BackgroundTransparency = 1
+    progressLabel.Text = "Progress:"
+    progressLabel.TextColor3 = UI_CONSTANTS.COLORS.TEXT_PRIMARY
+    progressLabel.TextScaled = true
+    progressLabel.Font = UI_CONSTANTS.FONTS.MAIN
+    progressLabel.TextXAlignment = Enum.TextXAlignment.Left
+    progressLabel.ZIndex = 102
+    
+    -- Status buttons
+    local selectedStatus = task.status
+    local statusButtons = {}
+    local statuses = {"Todo", "InProgress", "Review", "Completed"}
+    local statusColors = {
+        Todo = UI_CONSTANTS.COLORS.TEXT_SECONDARY,
+        InProgress = UI_CONSTANTS.COLORS.ACCENT_TEAL,
+        Review = UI_CONSTANTS.COLORS.ACCENT_PURPLE,
+        Completed = UI_CONSTANTS.COLORS.SUCCESS_GREEN
+    }
+    
+    for i, status in ipairs(statuses) do
+        local statusButton = createStyledButton(statusFrame, {
+            Name = status .. "Button",
+            Text = status,
+            Size = UDim2.new(0.23, 0, 0, 25),
+            Position = UDim2.new((i-1) * 0.25, 0, 0, 25),
+            BackgroundColor3 = status == selectedStatus and statusColors[status] or UI_CONSTANTS.COLORS.SECONDARY_BG
+        })
+        statusButton.ZIndex = 102
+        
+        statusButton.MouseButton1Click:Connect(function()
+            selectedStatus = status
+            -- Update button colors
+            for j, s in ipairs(statuses) do
+                local button = statusButtons[s]
+                if button then
+                    local targetColor = (s == selectedStatus) and statusColors[s] or UI_CONSTANTS.COLORS.SECONDARY_BG
+                    local tween = TweenService:Create(button, TweenInfo.new(0.2), {BackgroundColor3 = targetColor})
+                    tween:Play()
+                end
+            end
+            
+            -- Auto-update progress based on status
+            if selectedStatus == "Completed" then
+                progressSlider.Text = "100"
+            elseif selectedStatus == "InProgress" and tonumber(progressSlider.Text) == 0 then
+                progressSlider.Text = "25"
+            elseif selectedStatus == "Review" and tonumber(progressSlider.Text) < 75 then
+                progressSlider.Text = "75"
+            end
+        end)
+        
+        statusButtons[status] = statusButton
+    end
+    
+    -- Progress slider
+    local progressSlider = Instance.new("TextBox")
+    progressSlider.Name = "ProgressSlider"
+    progressSlider.Parent = statusFrame
+    progressSlider.Size = UDim2.new(0.5, -10, 0, 25)
+    progressSlider.Position = UDim2.new(0.5, 0, 0, 25)
+    progressSlider.BackgroundColor3 = UI_CONSTANTS.COLORS.SECONDARY_BG
+    progressSlider.BorderSizePixel = 0
+    progressSlider.Text = tostring(task.progress)
+    progressSlider.PlaceholderText = "0-100"
+    progressSlider.TextColor3 = UI_CONSTANTS.COLORS.TEXT_PRIMARY
+    progressSlider.PlaceholderColor3 = UI_CONSTANTS.COLORS.TEXT_SECONDARY
+    progressSlider.TextScaled = true
+    progressSlider.Font = UI_CONSTANTS.FONTS.MAIN
+    progressSlider.TextXAlignment = Enum.TextXAlignment.Center
+    progressSlider.ZIndex = 102
+    
+    local progressCorner = Instance.new("UICorner")
+    progressCorner.CornerRadius = UDim.new(0, 4)
+    progressCorner.Parent = progressSlider
+    
+    -- Progress buttons (quick set)
+    local progressButtons = {"0%", "25%", "50%", "75%", "100%"}
+    for i, prog in ipairs(progressButtons) do
+        local progButton = createStyledButton(statusFrame, {
+            Name = prog .. "Button",
+            Text = prog,
+            Size = UDim2.new(0.08, 0, 0, 20),
+            Position = UDim2.new(0.5 + (i-1) * 0.09, 0, 0, 50),
+            BackgroundColor3 = UI_CONSTANTS.COLORS.ACCENT_MAGENTA
+        })
+        progButton.ZIndex = 102
+        
+        progButton.MouseButton1Click:Connect(function()
+            progressSlider.Text = prog:sub(1, -2) -- Remove %
+        end)
+    end
+    
+    -- Task title input (editable)
+    local titleFrame = Instance.new("Frame")
+    titleFrame.Name = "TitleFrame"
+    titleFrame.Parent = dialog
+    titleFrame.Size = UDim2.new(1, -40, 0, 60)
+    titleFrame.Position = UDim2.new(0, 20, 0, 145)
+    titleFrame.BackgroundTransparency = 1
+    titleFrame.ZIndex = 102
+    
+    local titleInputLabel = Instance.new("TextLabel")
+    titleInputLabel.Name = "TitleInputLabel"
+    titleInputLabel.Parent = titleFrame
+    titleInputLabel.Size = UDim2.new(1, 0, 0, 20)
+    titleInputLabel.Position = UDim2.new(0, 0, 0, 0)
+    titleInputLabel.BackgroundTransparency = 1
+    titleInputLabel.Text = "Task Title:"
+    titleInputLabel.TextColor3 = UI_CONSTANTS.COLORS.TEXT_PRIMARY
+    titleInputLabel.TextScaled = true
+    titleInputLabel.Font = UI_CONSTANTS.FONTS.MAIN
+    titleInputLabel.TextXAlignment = Enum.TextXAlignment.Left
+    titleInputLabel.ZIndex = 102
+    
+    local titleInput = Instance.new("TextBox")
+    titleInput.Name = "TitleInput"
+    titleInput.Parent = titleFrame
+    titleInput.Size = UDim2.new(1, 0, 0, 30)
+    titleInput.Position = UDim2.new(0, 0, 0, 25)
+    titleInput.BackgroundColor3 = UI_CONSTANTS.COLORS.SECONDARY_BG
+    titleInput.BorderSizePixel = 0
+    titleInput.Text = task.title
+    titleInput.PlaceholderText = "Enter task title..."
+    titleInput.TextColor3 = UI_CONSTANTS.COLORS.TEXT_PRIMARY
+    titleInput.PlaceholderColor3 = UI_CONSTANTS.COLORS.TEXT_SECONDARY
+    titleInput.TextScaled = true
+    titleInput.Font = UI_CONSTANTS.FONTS.MAIN
+    titleInput.TextXAlignment = Enum.TextXAlignment.Left
+    titleInput.ZIndex = 102
+    
+    local titleInputCorner = Instance.new("UICorner")
+    titleInputCorner.CornerRadius = UDim.new(0, 4)
+    titleInputCorner.Parent = titleInput
+    
+    -- Description input (editable)
+    local descFrame = Instance.new("Frame")
+    descFrame.Name = "DescFrame"
+    descFrame.Parent = dialog
+    descFrame.Size = UDim2.new(1, -40, 0, 80)
+    descFrame.Position = UDim2.new(0, 20, 0, 215)
+    descFrame.BackgroundTransparency = 1
+    descFrame.ZIndex = 102
+    
+    local descInputLabel = Instance.new("TextLabel")
+    descInputLabel.Name = "DescInputLabel"
+    descInputLabel.Parent = descFrame
+    descInputLabel.Size = UDim2.new(1, 0, 0, 20)
+    descInputLabel.Position = UDim2.new(0, 0, 0, 0)
+    descInputLabel.BackgroundTransparency = 1
+    descInputLabel.Text = "Description:"
+    descInputLabel.TextColor3 = UI_CONSTANTS.COLORS.TEXT_PRIMARY
+    descInputLabel.TextScaled = true
+    descInputLabel.Font = UI_CONSTANTS.FONTS.MAIN
+    descInputLabel.TextXAlignment = Enum.TextXAlignment.Left
+    descInputLabel.ZIndex = 102
+    
+    local descInput = Instance.new("TextBox")
+    descInput.Name = "DescInput"
+    descInput.Parent = descFrame
+    descInput.Size = UDim2.new(1, 0, 0, 50)
+    descInput.Position = UDim2.new(0, 0, 0, 25)
+    descInput.BackgroundColor3 = UI_CONSTANTS.COLORS.SECONDARY_BG
+    descInput.BorderSizePixel = 0
+    descInput.Text = task.description or ""
+    descInput.PlaceholderText = "Enter task description..."
+    descInput.TextColor3 = UI_CONSTANTS.COLORS.TEXT_PRIMARY
+    descInput.PlaceholderColor3 = UI_CONSTANTS.COLORS.TEXT_SECONDARY
+    descInput.TextScaled = true
+    descInput.Font = UI_CONSTANTS.FONTS.MAIN
+    descInput.TextXAlignment = Enum.TextXAlignment.Left
+    descInput.TextYAlignment = Enum.TextYAlignment.Top
+    descInput.TextWrapped = true
+    descInput.MultiLine = true
+    descInput.ZIndex = 102
+    
+    local descInputCorner = Instance.new("UICorner")
+    descInputCorner.CornerRadius = UDim.new(0, 4)
+    descInputCorner.Parent = descInput
+    
+    -- Priority selection (editable)
+    local priorityFrame = Instance.new("Frame")
+    priorityFrame.Name = "PriorityFrame"
+    priorityFrame.Parent = dialog
+    priorityFrame.Size = UDim2.new(1, -40, 0, 60)
+    priorityFrame.Position = UDim2.new(0, 20, 0, 305)
+    priorityFrame.BackgroundTransparency = 1
+    priorityFrame.ZIndex = 102
+    
+    local priorityLabel = Instance.new("TextLabel")
+    priorityLabel.Name = "PriorityLabel"
+    priorityLabel.Parent = priorityFrame
+    priorityLabel.Size = UDim2.new(1, 0, 0, 20)
+    priorityLabel.Position = UDim2.new(0, 0, 0, 0)
+    priorityLabel.BackgroundTransparency = 1
+    priorityLabel.Text = "Priority:"
+    priorityLabel.TextColor3 = UI_CONSTANTS.COLORS.TEXT_PRIMARY
+    priorityLabel.TextScaled = true
+    priorityLabel.Font = UI_CONSTANTS.FONTS.MAIN
+    priorityLabel.TextXAlignment = Enum.TextXAlignment.Left
+    priorityLabel.ZIndex = 102
+    
+    local selectedPriority = task.priority
+    local priorityButtons = {}
+    local priorities = {"Critical", "High", "Medium", "Low"}
+    local priorityColors = {
+        Critical = UI_CONSTANTS.COLORS.ERROR_RED,
+        High = UI_CONSTANTS.COLORS.ACCENT_MAGENTA,
+        Medium = UI_CONSTANTS.COLORS.ACCENT_BLUE,
+        Low = UI_CONSTANTS.COLORS.TEXT_SECONDARY
+    }
+    
+    for i, priority in ipairs(priorities) do
+        local priorityButton = createStyledButton(priorityFrame, {
+            Name = priority .. "Button",
+            Text = priority,
+            Size = UDim2.new(0.23, 0, 0, 30),
+            Position = UDim2.new((i-1) * 0.25, 0, 0, 25),
+            BackgroundColor3 = priority == selectedPriority and priorityColors[priority] or UI_CONSTANTS.COLORS.SECONDARY_BG
+        })
+        priorityButton.ZIndex = 102
+        
+        priorityButton.MouseButton1Click:Connect(function()
+            selectedPriority = priority
+            -- Update button colors
+            for j, p in ipairs(priorities) do
+                local button = priorityButtons[p]
+                if button then
+                    local targetColor = (p == selectedPriority) and priorityColors[p] or UI_CONSTANTS.COLORS.SECONDARY_BG
+                    local tween = TweenService:Create(button, TweenInfo.new(0.2), {BackgroundColor3 = targetColor})
+                    tween:Play()
+                end
+            end
+        end)
+        
+        priorityButtons[priority] = priorityButton
+    end
+    
+    -- User Assignment section (editable)
+    local assignFrame = Instance.new("Frame")
+    assignFrame.Name = "AssignFrame"
+    assignFrame.Parent = dialog
+    assignFrame.Size = UDim2.new(1, -40, 0, 60)
+    assignFrame.Position = UDim2.new(0, 20, 0, 375)
+    assignFrame.BackgroundTransparency = 1
+    assignFrame.ZIndex = 102
+    
+    local assignLabel = Instance.new("TextLabel")
+    assignLabel.Name = "AssignLabel"
+    assignLabel.Parent = assignFrame
+    assignLabel.Size = UDim2.new(1, 0, 0, 20)
+    assignLabel.Position = UDim2.new(0, 0, 0, 0)
+    assignLabel.BackgroundTransparency = 1
+    assignLabel.Text = "Assign to:"
+    assignLabel.TextColor3 = UI_CONSTANTS.COLORS.TEXT_PRIMARY
+    assignLabel.TextScaled = true
+    assignLabel.Font = UI_CONSTANTS.FONTS.MAIN
+    assignLabel.TextXAlignment = Enum.TextXAlignment.Left
+    assignLabel.ZIndex = 102
+    
+    -- Get available users
+    local availableUsers = {{userId = 0, name = "Unassigned"}}
+    if ConnectionMonitor and ConnectionMonitor.getActiveUsers then
+        local activeUsers = ConnectionMonitor.getActiveUsers()
+        for _, user in ipairs(activeUsers) do
+            table.insert(availableUsers, {userId = user.userId, name = user.name})
+        end
+    end
+    
+    local selectedUserId = task.assignedTo or 0
+    local assignButtons = {}
+    
+    for i, user in ipairs(availableUsers) do
+        if i <= 4 then -- Show max 4 users in dialog
+            local userButton = createStyledButton(assignFrame, {
+                Name = user.name .. "Button",
+                Text = user.name,
+                Size = UDim2.new(0.23, 0, 0, 30),
+                Position = UDim2.new((i-1) * 0.25, 0, 0, 25),
+                BackgroundColor3 = selectedUserId == user.userId and UI_CONSTANTS.COLORS.ACCENT_TEAL or UI_CONSTANTS.COLORS.SECONDARY_BG
+            })
+            userButton.ZIndex = 102
+            
+            userButton.MouseButton1Click:Connect(function()
+                selectedUserId = user.userId
+                -- Update button colors
+                for j, u in ipairs(availableUsers) do
+                    local button = assignButtons[u.userId]
+                    if button then
+                        local targetColor = (u.userId == selectedUserId) and UI_CONSTANTS.COLORS.ACCENT_TEAL or UI_CONSTANTS.COLORS.SECONDARY_BG
+                        local tween = TweenService:Create(button, TweenInfo.new(0.2), {BackgroundColor3 = targetColor})
+                        tween:Play()
+                    end
+                end
+            end)
+            
+            assignButtons[user.userId] = userButton
+        end
+    end
+    
+    -- Due Date section (editable)
+    local dueDateFrame = Instance.new("Frame")
+    dueDateFrame.Name = "DueDateFrame"
+    dueDateFrame.Parent = dialog
+    dueDateFrame.Size = UDim2.new(1, -40, 0, 60)
+    dueDateFrame.Position = UDim2.new(0, 20, 0, 445)
+    dueDateFrame.BackgroundTransparency = 1
+    dueDateFrame.ZIndex = 102
+    
+    local dueDateLabel = Instance.new("TextLabel")
+    dueDateLabel.Name = "DueDateLabel"
+    dueDateLabel.Parent = dueDateFrame
+    dueDateLabel.Size = UDim2.new(0.5, 0, 0, 20)
+    dueDateLabel.Position = UDim2.new(0, 0, 0, 0)
+    dueDateLabel.BackgroundTransparency = 1
+    dueDateLabel.Text = "Due Date (optional):"
+    dueDateLabel.TextColor3 = UI_CONSTANTS.COLORS.TEXT_PRIMARY
+    dueDateLabel.TextScaled = true
+    dueDateLabel.Font = UI_CONSTANTS.FONTS.MAIN
+    dueDateLabel.TextXAlignment = Enum.TextXAlignment.Left
+    dueDateLabel.ZIndex = 102
+    
+    local dueDateInput = Instance.new("TextBox")
+    dueDateInput.Name = "DueDateInput"
+    dueDateInput.Parent = dueDateFrame
+    dueDateInput.Size = UDim2.new(0.5, -10, 0, 30)
+    dueDateInput.Position = UDim2.new(0.5, 0, 0, 25)
+    dueDateInput.BackgroundColor3 = UI_CONSTANTS.COLORS.SECONDARY_BG
+    dueDateInput.BorderSizePixel = 0
+    dueDateInput.Text = task.dueDate and os.date("%m/%d/%Y", task.dueDate) or ""
+    dueDateInput.PlaceholderText = "MM/DD/YYYY or days from now..."
+    dueDateInput.TextColor3 = UI_CONSTANTS.COLORS.TEXT_PRIMARY
+    dueDateInput.PlaceholderColor3 = UI_CONSTANTS.COLORS.TEXT_SECONDARY
+    dueDateInput.TextScaled = true
+    dueDateInput.Font = UI_CONSTANTS.FONTS.MAIN
+    dueDateInput.TextXAlignment = Enum.TextXAlignment.Center
+    dueDateInput.ZIndex = 102
+    
+    local dueDateCorner = Instance.new("UICorner")
+    dueDateCorner.CornerRadius = UDim.new(0, 4)
+    dueDateCorner.Parent = dueDateInput
+    
+    -- Quick due date buttons
+    local quickDates = {"1 Day", "3 Days", "1 Week"}
+    for i, dateText in ipairs(quickDates) do
+        local quickButton = createStyledButton(dueDateFrame, {
+            Name = dateText .. "Button",
+            Text = dateText,
+            Size = UDim2.new(0.15, 0, 0, 25),
+            Position = UDim2.new((i-1) * 0.16, 0, 0, 0),
+            BackgroundColor3 = UI_CONSTANTS.COLORS.ACCENT_MAGENTA
+        })
+        quickButton.ZIndex = 102
+        
+        quickButton.MouseButton1Click:Connect(function()
+            local days = 1
+            if dateText == "3 Days" then days = 3
+            elseif dateText == "1 Week" then days = 7 end
+            
+            local futureDate = os.time() + (days * 24 * 60 * 60)
+            dueDateInput.Text = os.date("%m/%d/%Y", futureDate)
+        end)
+    end
+    
+    -- Comments section
+    local commentsFrame = createRoundedFrame(dialog, {
+        Name = "CommentsFrame",
+        Size = UDim2.new(1, -40, 0, 120),
+        Position = UDim2.new(0, 20, 0, 515),
+        BackgroundColor3 = UI_CONSTANTS.COLORS.SECONDARY_BG
+    })
+    commentsFrame.ZIndex = 102
+    
+    local commentsLabel = Instance.new("TextLabel")
+    commentsLabel.Name = "CommentsLabel"
+    commentsLabel.Parent = commentsFrame
+    commentsLabel.Size = UDim2.new(1, -20, 0, 20)
+    commentsLabel.Position = UDim2.new(0, 10, 0, 5)
+    commentsLabel.BackgroundTransparency = 1
+    commentsLabel.Text = "💬 Comments (" .. #task.comments .. ")"
+    commentsLabel.TextColor3 = UI_CONSTANTS.COLORS.TEXT_PRIMARY
+    commentsLabel.TextScaled = true
+    commentsLabel.Font = UI_CONSTANTS.FONTS.MAIN
+    commentsLabel.TextXAlignment = Enum.TextXAlignment.Left
+    commentsLabel.ZIndex = 103
+    
+    -- Add comment input
+    local commentInput = Instance.new("TextBox")
+    commentInput.Name = "CommentInput"
+    commentInput.Parent = commentsFrame
+    commentInput.Size = UDim2.new(0.7, 0, 0, 25)
+    commentInput.Position = UDim2.new(0, 10, 0, 30)
+    commentInput.BackgroundColor3 = UI_CONSTANTS.COLORS.PRIMARY_BG
+    commentInput.BorderSizePixel = 0
+    commentInput.Text = ""
+    commentInput.PlaceholderText = "Add a comment..."
+    commentInput.TextColor3 = UI_CONSTANTS.COLORS.TEXT_PRIMARY
+    commentInput.PlaceholderColor3 = UI_CONSTANTS.COLORS.TEXT_SECONDARY
+    commentInput.TextScaled = true
+    commentInput.Font = UI_CONSTANTS.FONTS.MAIN
+    commentInput.TextXAlignment = Enum.TextXAlignment.Left
+    commentInput.ZIndex = 103
+    
+    local commentInputCorner = Instance.new("UICorner")
+    commentInputCorner.CornerRadius = UDim.new(0, 4)
+    commentInputCorner.Parent = commentInput
+    
+    local addCommentButton = createStyledButton(commentsFrame, {
+        Name = "AddCommentButton",
+        Text = "💬 Add",
+        Size = UDim2.new(0.25, 0, 0, 25),
+        Position = UDim2.new(0.75, 0, 0, 30),
+        BackgroundColor3 = UI_CONSTANTS.COLORS.ACCENT_BLUE
+    })
+    addCommentButton.ZIndex = 103
+    
+    addCommentButton.MouseButton1Click:Connect(function()
+        local commentText = commentInput.Text:gsub("^%s*(.-)%s*$", "%1")
+        if commentText ~= "" then
+            local success, error = TaskManager.addComment(task.id, commentText)
+            if success then
+                commentInput.Text = ""
+                commentsLabel.Text = "💬 Comments (" .. (#task.comments + 1) .. ")"
+                -- Refresh task data
+                task = TaskManager.getTask(task.id)
+            else
+                print("[TCE] Failed to add comment:", error)
+            end
+        end
+    end)
+    
+    -- Recent comments display
+    local commentsScroll = Instance.new("ScrollingFrame")
+    commentsScroll.Name = "CommentsScroll"
+    commentsScroll.Parent = commentsFrame
+    commentsScroll.Size = UDim2.new(1, -20, 0, 60)
+    commentsScroll.Position = UDim2.new(0, 10, 0, 60)
+    commentsScroll.BackgroundTransparency = 1
+    commentsScroll.BorderSizePixel = 0
+    commentsScroll.ScrollBarThickness = 4
+    commentsScroll.ScrollBarImageColor3 = UI_CONSTANTS.COLORS.ACCENT_BLUE
+    commentsScroll.CanvasSize = UDim2.new(0, 0, 0, #task.comments * 15)
+    commentsScroll.ZIndex = 103
+    
+    -- Show recent comments
+    for i = math.max(1, #task.comments - 2), #task.comments do
+        local comment = task.comments[i]
+        if comment then
+            local commentLabel = Instance.new("TextLabel")
+            commentLabel.Name = "Comment_" .. i
+            commentLabel.Parent = commentsScroll
+            commentLabel.Size = UDim2.new(1, -10, 0, 12)
+            commentLabel.Position = UDim2.new(0, 5, 0, (i - math.max(1, #task.comments - 2)) * 15)
+            commentLabel.BackgroundTransparency = 1
+            commentLabel.Text = string.format("%s: %s", comment.author, comment.content)
+            commentLabel.TextColor3 = UI_CONSTANTS.COLORS.TEXT_SECONDARY
+            commentLabel.TextScaled = true
+            commentLabel.Font = UI_CONSTANTS.FONTS.MAIN
+            commentLabel.TextXAlignment = Enum.TextXAlignment.Left
+            commentLabel.TextTruncate = Enum.TextTruncate.AtEnd
+            commentLabel.ZIndex = 104
+        end
+    end
+    
+    -- Action buttons
+    local buttonFrame = Instance.new("Frame")
+    buttonFrame.Name = "ButtonFrame"
+    buttonFrame.Parent = dialog
+    buttonFrame.Size = UDim2.new(1, -40, 0, 40)
+    buttonFrame.Position = UDim2.new(0, 20, 0, 650)
+    buttonFrame.BackgroundTransparency = 1
+    buttonFrame.ZIndex = 102
+    
+    local cancelButton = createStyledButton(buttonFrame, {
+        Name = "CancelButton",
+        Text = "Cancel",
+        Size = UDim2.new(0.3, 0, 1, 0),
+        Position = UDim2.new(0, 0, 0, 0),
+        BackgroundColor3 = UI_CONSTANTS.COLORS.TEXT_SECONDARY
+    })
+    cancelButton.ZIndex = 102
+    
+    cancelButton.MouseButton1Click:Connect(function()
+        overlay:Destroy()
+    end)
+    
+    local saveButton = createStyledButton(buttonFrame, {
+        Name = "SaveButton",
+        Text = "Save Changes",
+        Size = UDim2.new(0.65, 0, 1, 0),
+        Position = UDim2.new(0.35, 0, 0, 0),
+        BackgroundColor3 = UI_CONSTANTS.COLORS.SUCCESS_GREEN
+    })
+    saveButton.ZIndex = 102
+    
+    saveButton.MouseButton1Click:Connect(function()
+        local title = titleInput.Text:gsub("^%s*(.-)%s*$", "%1")
+        if title == "" then
+            -- Show error - title required
+            titleInput.BackgroundColor3 = UI_CONSTANTS.COLORS.ERROR_RED
+            wait(0.5)
+            titleInput.BackgroundColor3 = UI_CONSTANTS.COLORS.SECONDARY_BG
+            return
+        end
+        
+        -- Parse progress
+        local progress = tonumber(progressSlider.Text) or task.progress
+        if progress < 0 then progress = 0 end
+        if progress > 100 then progress = 100 end
+        
+        -- Parse due date
+        local dueDate = nil
+        local dueDateText = dueDateInput.Text:gsub("^%s*(.-)%s*$", "%1")
+        if dueDateText ~= "" then
+            -- Try parsing MM/DD/YYYY format
+            local month, day, year = dueDateText:match("(%d+)/(%d+)/(%d+)")
+            if month and day and year then
+                dueDate = os.time({year = tonumber(year), month = tonumber(month), day = tonumber(day), hour = 23, min = 59, sec = 59})
+            else
+                -- Try parsing as number of days from now
+                local days = tonumber(dueDateText)
+                if days then
+                    dueDate = os.time() + (days * 24 * 60 * 60)
+                end
+            end
+        end
+        
+        -- Update the task
+        local updates = {
+            title = title,
+            description = descInput.Text,
+            assignedTo = selectedUserId > 0 and selectedUserId or nil,
+            dueDate = dueDate,
+            priority = selectedPriority,
+            status = selectedStatus,
+            progress = progress
+        }
+        
+        local success, error = TaskManager.updateTask(task.id, updates)
+        
+        if success then
+            print("[TCE] Updated task:", task.id, "-", title)
+            overlay:Destroy()
+            
+            -- Refresh the tasks panel
+            if currentTab == "tasks" then
+                UIManager.refreshTasks()
+            end
+            
+            -- Show success notification
+            if NotificationManager then
+                NotificationManager.sendMessage("Task Updated", 
+                    string.format("Successfully updated task: %s", title), "SUCCESS")
+            end
+        else
+            print("[TCE] Failed to update task:", error)
+            -- Show error feedback
+            saveButton.BackgroundColor3 = UI_CONSTANTS.COLORS.ERROR_RED
+            saveButton.Text = "Error: " .. (error or "Unknown")
+            wait(2)
+            saveButton.BackgroundColor3 = UI_CONSTANTS.COLORS.SUCCESS_GREEN
+            saveButton.Text = "Save Changes"
+        end
+    end)
 end
 
 --[[
@@ -1271,6 +3080,308 @@ function UIManager.updateRecentActivity()
         timeText.Font = UI_CONSTANTS.FONTS.MAIN
         timeText.TextXAlignment = Enum.TextXAlignment.Right
     end
+end
+
+--[[
+Refreshes the Progress panel with live editing and activity data.
+]]
+function UIManager.refreshProgress()
+    if not contentPanels.progress then return end
+    
+    -- Update session time
+    local sessionTimeLabel = contentPanels.progress:FindFirstChild("SessionTimeLabel")
+    if sessionTimeLabel then
+        local sessionDuration = os.time() - progressData.sessionStartTime
+        local minutes = math.floor(sessionDuration / 60)
+        local seconds = sessionDuration % 60
+        sessionTimeLabel.Text = string.format("Session: %d:%02d", minutes, seconds)
+    end
+    
+    -- Update edit counts
+    local liveEditsFrame = contentPanels.progress:FindFirstChild("LiveEdits")
+    if liveEditsFrame then
+        local editsStats = liveEditsFrame:FindFirstChild("EditsStats")
+        if editsStats then
+            local scriptEdits = editsStats:FindFirstChild("ScriptEdits")
+            local buildEdits = editsStats:FindFirstChild("BuildEdits")
+            local assetEdits = editsStats:FindFirstChild("AssetEdits")
+            
+            if scriptEdits then scriptEdits.Text = "Scripts: " .. progressData.editCounts.scripts end
+            if buildEdits then buildEdits.Text = "Builds: " .. progressData.editCounts.builds end
+            if assetEdits then assetEdits.Text = "Assets: " .. progressData.editCounts.assets end
+        end
+        
+        -- Update current selection display
+        local currentEditorLabel = liveEditsFrame:FindFirstChild("CurrentEditorLabel")
+        if currentEditorLabel then
+            local Selection = game:GetService("Selection")
+            local selected = Selection:Get()
+            
+            if #selected > 0 then
+                local selectedItem = selected[1]
+                local itemType = "Unknown"
+                
+                if selectedItem:IsA("Script") or selectedItem:IsA("LocalScript") or selectedItem:IsA("ModuleScript") then
+                    itemType = "Script"
+                elseif selectedItem:IsA("Part") or selectedItem:IsA("Model") or selectedItem:IsA("MeshPart") then
+                    itemType = "Build"
+                else
+                    itemType = "Asset"
+                end
+                
+                currentEditorLabel.Text = string.format("Currently editing: %s (%s)", selectedItem.Name, itemType)
+                currentEditorLabel.TextColor3 = UI_CONSTANTS.COLORS.ACCENT_TEAL
+                progressData.currentSelection = selectedItem
+            else
+                currentEditorLabel.Text = "Currently editing: No selection"
+                currentEditorLabel.TextColor3 = UI_CONSTANTS.COLORS.TEXT_SECONDARY
+                progressData.currentSelection = nil
+            end
+        end
+    end
+    
+    -- Update user presence
+    local presenceFrame = contentPanels.progress:FindFirstChild("UserPresence")
+    if presenceFrame then
+        UIManager.updateUserPresence(presenceFrame)
+    end
+    
+    -- Update activity timeline
+    local timelineFrame = contentPanels.progress:FindFirstChild("ActivityTimeline")
+    if timelineFrame then
+        UIManager.updateActivityTimeline(timelineFrame)
+    end
+end
+
+--[[
+Updates the user presence display in the Progress panel.
+@param presenceFrame Frame: The presence frame to update
+]]
+function UIManager.updateUserPresence(presenceFrame)
+    -- Clear existing presence entries
+    for _, child in pairs(presenceFrame:GetChildren()) do
+        if child.Name:match("^User_") then
+            child:Destroy()
+        end
+    end
+    
+    local activeUsers = {}
+    if ConnectionMonitor and ConnectionMonitor.getActiveUsers then
+        activeUsers = ConnectionMonitor.getActiveUsers()
+    end
+    
+    for i, user in ipairs(activeUsers) do
+        if i <= 3 then -- Show max 3 users
+            local userEntry = Instance.new("Frame")
+            userEntry.Name = "User_" .. i
+            userEntry.Parent = presenceFrame
+            userEntry.Size = UDim2.new(1, -20, 0, 20)
+            userEntry.Position = UDim2.new(0, 10, 0, 25 + (i-1) * 22)
+            userEntry.BackgroundTransparency = 1
+            
+            -- Status indicator
+            local statusDot = createStatusIndicator(userEntry, {
+                Name = "StatusDot",
+                Position = UDim2.new(0, 0, 0.5, -6),
+                Color = user.status == "Active" and UI_CONSTANTS.COLORS.SUCCESS_GREEN or UI_CONSTANTS.COLORS.TEXT_SECONDARY,
+                Pulse = user.status == "Active"
+            })
+            
+            -- User name
+            local nameLabel = Instance.new("TextLabel")
+            nameLabel.Name = "NameLabel"
+            nameLabel.Parent = userEntry
+            nameLabel.Size = UDim2.new(0.6, -20, 1, 0)
+            nameLabel.Position = UDim2.new(0, 20, 0, 0)
+            nameLabel.BackgroundTransparency = 1
+            nameLabel.Text = user.name or ("User " .. user.userId)
+            nameLabel.TextColor3 = UI_CONSTANTS.COLORS.TEXT_PRIMARY
+            nameLabel.TextScaled = true
+            nameLabel.Font = UI_CONSTANTS.FONTS.MAIN
+            nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+            
+            -- Activity status
+            local activityLabel = Instance.new("TextLabel")
+            activityLabel.Name = "ActivityLabel"
+            activityLabel.Parent = userEntry
+            activityLabel.Size = UDim2.new(0.4, 0, 1, 0)
+            activityLabel.Position = UDim2.new(0.6, 0, 0, 0)
+            activityLabel.BackgroundTransparency = 1
+            activityLabel.Text = user.status == "Active" and "Editing" or "Idle"
+            activityLabel.TextColor3 = user.status == "Active" and UI_CONSTANTS.COLORS.ACCENT_TEAL or UI_CONSTANTS.COLORS.TEXT_SECONDARY
+            activityLabel.TextScaled = true
+            activityLabel.Font = UI_CONSTANTS.FONTS.MAIN
+            activityLabel.TextXAlignment = Enum.TextXAlignment.Right
+        end
+    end
+end
+
+--[[
+Updates the activity timeline display in the Progress panel.
+@param timelineFrame Frame: The timeline frame to update
+]]
+function UIManager.updateActivityTimeline(timelineFrame)
+    -- Clear existing timeline entries
+    for _, child in pairs(timelineFrame:GetChildren()) do
+        if child.Name:match("^Activity_") then
+            child:Destroy()
+        end
+    end
+    
+    -- Get recent activities
+    local activities = {}
+    if NotificationManager and NotificationManager.getRecentNotifications then
+        local notifications = NotificationManager.getRecentNotifications()
+        for i, notification in ipairs(notifications) do
+            if i <= 6 then -- Show last 6 activities
+                table.insert(activities, {
+                    text = notification.title,
+                    detail = notification.message,
+                    time = os.date("%H:%M", notification.timestamp),
+                    type = notification.type
+                })
+            end
+        end
+    end
+    
+    -- Add default activities if none exist
+    if #activities == 0 then
+        activities = {
+            {text = "Plugin Started", detail = "Team Create Enhancement Plugin loaded", time = os.date("%H:%M"), type = "SUCCESS"},
+            {text = "Monitoring Active", detail = "Connection monitoring started", time = os.date("%H:%M"), type = "INFO"}
+        }
+    end
+    
+    for i, activity in ipairs(activities) do
+        local activityEntry = Instance.new("Frame")
+        activityEntry.Name = "Activity_" .. i
+        activityEntry.Parent = timelineFrame
+        activityEntry.Size = UDim2.new(1, -20, 0, 30)
+        activityEntry.Position = UDim2.new(0, 10, 0, 25 + (i-1) * 32)
+        activityEntry.BackgroundColor3 = UI_CONSTANTS.COLORS.SECONDARY_BG
+        activityEntry.BorderSizePixel = 0
+        
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(0, 4)
+        corner.Parent = activityEntry
+        
+        -- Timeline dot
+        local timelineDot = Instance.new("Frame")
+        timelineDot.Name = "TimelineDot"
+        timelineDot.Parent = activityEntry
+        timelineDot.Size = UDim2.new(0, 8, 0, 8)
+        timelineDot.Position = UDim2.new(0, -4, 0.5, -4)
+        timelineDot.BackgroundColor3 = activity.type == "SUCCESS" and UI_CONSTANTS.COLORS.SUCCESS_GREEN or UI_CONSTANTS.COLORS.ACCENT_BLUE
+        timelineDot.BorderSizePixel = 0
+        
+        local dotCorner = Instance.new("UICorner")
+        dotCorner.CornerRadius = UDim.new(1, 0)
+        dotCorner.Parent = timelineDot
+        
+        -- Activity text
+        local activityText = Instance.new("TextLabel")
+        activityText.Name = "ActivityText"
+        activityText.Parent = activityEntry
+        activityText.Size = UDim2.new(0.7, -10, 0.5, 0)
+        activityText.Position = UDim2.new(0, 8, 0, 2)
+        activityText.BackgroundTransparency = 1
+        activityText.Text = activity.text
+        activityText.TextColor3 = UI_CONSTANTS.COLORS.TEXT_PRIMARY
+        activityText.TextScaled = true
+        activityText.Font = UI_CONSTANTS.FONTS.MAIN
+        activityText.TextXAlignment = Enum.TextXAlignment.Left
+        activityText.TextTruncate = Enum.TextTruncate.AtEnd
+        
+        -- Activity detail
+        local activityDetail = Instance.new("TextLabel")
+        activityDetail.Name = "ActivityDetail"
+        activityDetail.Parent = activityEntry
+        activityDetail.Size = UDim2.new(0.7, -10, 0.5, 0)
+        activityDetail.Position = UDim2.new(0, 8, 0.5, 0)
+        activityDetail.BackgroundTransparency = 1
+        activityDetail.Text = activity.detail
+        activityDetail.TextColor3 = UI_CONSTANTS.COLORS.TEXT_SECONDARY
+        activityDetail.TextScaled = true
+        activityDetail.Font = UI_CONSTANTS.FONTS.MAIN
+        activityDetail.TextXAlignment = Enum.TextXAlignment.Left
+        activityDetail.TextTruncate = Enum.TextTruncate.AtEnd
+        
+        -- Time stamp
+        local timeLabel = Instance.new("TextLabel")
+        timeLabel.Name = "TimeLabel"
+        timeLabel.Parent = activityEntry
+        timeLabel.Size = UDim2.new(0.3, 0, 1, 0)
+        timeLabel.Position = UDim2.new(0.7, 0, 0, 0)
+        timeLabel.BackgroundTransparency = 1
+        timeLabel.Text = activity.time
+        timeLabel.TextColor3 = UI_CONSTANTS.COLORS.TEXT_SECONDARY
+        timeLabel.TextScaled = true
+        timeLabel.Font = UI_CONSTANTS.FONTS.MAIN
+        timeLabel.TextXAlignment = Enum.TextXAlignment.Right
+    end
+end
+
+--[[
+Tracks an edit action for progress monitoring.
+@param editType string: Type of edit (script/build/asset)
+]]
+function UIManager.trackEdit(editType)
+    if editType == "script" then
+        progressData.editCounts.scripts = progressData.editCounts.scripts + 1
+    elseif editType == "build" then
+        progressData.editCounts.builds = progressData.editCounts.builds + 1
+    elseif editType == "asset" then
+        progressData.editCounts.assets = progressData.editCounts.assets + 1
+    end
+    
+    -- Add to recent activity
+    table.insert(progressData.recentActivity, {
+        type = editType,
+        timestamp = os.time(),
+        item = progressData.currentSelection and progressData.currentSelection.Name or "Unknown"
+    })
+    
+    -- Keep only last 10 activities
+    if #progressData.recentActivity > 10 then
+        table.remove(progressData.recentActivity, 1)
+    end
+end
+
+--[[
+Resets progress tracking data for a new session.
+]]
+function UIManager.resetProgressData()
+    progressData.sessionStartTime = os.time()
+    progressData.editCounts.scripts = 0
+    progressData.editCounts.builds = 0
+    progressData.editCounts.assets = 0
+    progressData.currentSelection = nil
+    progressData.recentActivity = {}
+    progressData.userActivity = {}
+    
+    if NotificationManager then
+        NotificationManager.sendMessage("Progress Reset", "Progress tracking data has been reset", "INFO")
+    end
+    
+    print("[TCE] Progress data reset for new session")
+end
+
+--[[
+Gets the current progress statistics.
+@return table: Progress stats
+]]
+function UIManager.getProgressStats()
+    local totalEdits = progressData.editCounts.scripts + progressData.editCounts.builds + progressData.editCounts.assets
+    local sessionDuration = os.time() - progressData.sessionStartTime
+    
+    return {
+        sessionDuration = sessionDuration,
+        totalEdits = totalEdits,
+        editCounts = progressData.editCounts,
+        editsPerMinute = sessionDuration > 0 and (totalEdits / (sessionDuration / 60)) or 0,
+        currentSelection = progressData.currentSelection,
+        recentActivity = progressData.recentActivity
+    }
 end
 
 --[[

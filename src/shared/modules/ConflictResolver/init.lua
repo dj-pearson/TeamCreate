@@ -306,7 +306,7 @@ end
 
 local function createConflictWarning(instance, conflictingUserId)
     local conflictId = #activeConflicts + 1
-    local currentUser = Players.LocalPlayer.UserId
+    local currentUser = Players and Players.LocalPlayer and Players.LocalPlayer.UserId or 0
     
     local conflict = {
         id = conflictId,

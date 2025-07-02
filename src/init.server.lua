@@ -65,6 +65,7 @@ local ConnectionMonitor = require(script.shared.modules.ConnectionMonitor)
 local AssetLockManager = require(script.shared.modules.AssetLockManager)
 local NotificationManager = require(script.shared.modules.NotificationManager) -- Compliant notifications
 local ConflictResolver = require(script.shared.modules.ConflictResolver)
+local TaskManager = require(script.shared.modules.TaskManager)
 
 -- Main Plugin GUI
 local dockWidget: DockWidgetPluginGui = plugin:CreateDockWidgetPluginGui(
@@ -121,6 +122,7 @@ local function initializePlugin(): ()
     AssetLockManager.initialize(pluginState)
     NotificationManager.initialize(pluginState) -- Compliant notifications only
     ConflictResolver.initialize(pluginState)
+    TaskManager.initialize(pluginState)
     
     -- Set up module cross-references for UI integration
     local moduleRefs: ModuleReferences = {
@@ -128,7 +130,8 @@ local function initializePlugin(): ()
         AssetLockManager = AssetLockManager,
         ConnectionMonitor = ConnectionMonitor,
         NotificationManager = NotificationManager,
-        ConflictResolver = ConflictResolver
+        ConflictResolver = ConflictResolver,
+        TaskManager = TaskManager
     }
     UIManager.setModuleReferences(moduleRefs)
     
@@ -136,13 +139,14 @@ local function initializePlugin(): ()
     AssetLockManager.setPermissionManager(PermissionManager)
     ConflictResolver.setAssetLockManager(AssetLockManager)
     ConflictResolver.setPermissionManager(PermissionManager)
+    TaskManager.setModuleReferences(PermissionManager, NotificationManager)
     
     -- Setup plugin toolbar
     local toolbar = plugin:CreateToolbar("Team Create Enhancer")
     local toggleButton = toolbar:CreateButton(
         "TCE",
         "Toggle Team Create Enhancement Panel",
-        "rbxasset://textures/AnimationEditor/button_animationEditor@2x.png"
+        "rbxassetid://75806853590546"
     )
     
     toggleButton.Click:Connect(function()
@@ -186,6 +190,7 @@ local function cleanup(): ()
     ConnectionMonitor.stopMonitoring()
     UIManager.cleanup()
     AssetLockManager.cleanup()
+    TaskManager.cleanup()
     
     -- COMPLIANCE: Ensure no external connections remain
     NotificationManager.cleanup()

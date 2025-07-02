@@ -311,7 +311,7 @@ function AssetLockManager.initialize(state: PluginState): ()
             local lockInfo = assetLocks[path]
             
             if lockInfo and not isLockExpired(lockInfo) then
-                local currentUser = Players.LocalPlayer.UserId
+                local currentUser = Players and Players.LocalPlayer and Players.LocalPlayer.UserId or 0
                 if lockInfo.userId ~= currentUser then
                     -- Warn about locked asset
                     warn("[TCE] Asset is locked by " .. (lockInfo.userName or "another user"))
@@ -352,8 +352,9 @@ function AssetLockManager.lockAsset(instance: Instance, lockType: string?): (boo
         return false, "Invalid instance"
     end
     
-    local currentUser = Players.LocalPlayer.UserId
-    local currentUserName = Players.LocalPlayer.Name
+    local localPlayer = Players and Players.LocalPlayer
+    local currentUser = localPlayer and localPlayer.UserId or 0
+    local currentUserName = localPlayer and localPlayer.Name or "Unknown User"
     local instancePath = getInstancePath(instance)
     
     local canLock, reason = canLockAsset(currentUser, instancePath)
@@ -412,7 +413,7 @@ function AssetLockManager.unlockAsset(instancePath: InstancePath, userId: UserId
         return false, "Asset not locked"
     end
     
-    local currentUser = Players.LocalPlayer.UserId
+    local currentUser = Players and Players.LocalPlayer and Players.LocalPlayer.UserId or 0
     
     -- Check permission to unlock
     if lockInfo.userId ~= currentUser and not isAutoUnlock then
