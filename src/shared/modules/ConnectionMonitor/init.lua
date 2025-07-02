@@ -54,6 +54,55 @@ local connectionStatus = {
     unstableWarningShown = false
 }
 
+local function attemptReconnection()
+    if reconnectAttempts >= RECONNECT_ATTEMPTS then
+        warn("[TCE] Max reconnection attempts reached")
+        return false
+    end
+    
+    reconnectAttempts = reconnectAttempts + 1
+    print("[TCE] Attempting reconnection " .. reconnectAttempts .. "/" .. RECONNECT_ATTEMPTS)
+    
+    -- Create emergency snapshot before reconnection
+    createSnapshot()
+    
+    -- COMPLIANCE: Safe wait
+    wait(2)
+    
+    -- Reset connection state
+    lastHeartbeat = os.time()
+    connectionStatus.isConnected = true
+    connectionStatus.quality = "Good"
+    reconnectAttempts = 0
+    
+    print("[TCE] Reconnection successful")
+    
+    -- Trigger callbacks
+    for _, callback in pairs(connectionCallbacks) do
+        callback("reconnected", {
+            attempts = reconnectAttempts,
+            timestamp = os.time()
+        })
+    end
+    
+    return true
+end
+
+-- Monitoring loop
+local function stopMonitoring()
+    if heartbeatConnection then
+        heartbeatConnection:Disconnect()
+        heartbeatConnection = nil
+    end
+    
+    if snapshotConnection then
+        snapshotConnection:Disconnect()
+        snapshotConnection = nil
+    end
+    
+    print("[TCE] Stopped monitoring loops")
+end
+
 -- COMPLIANCE: Safe snapshot management using plugin settings
 local function saveSnapshots()
     local success, error = pcall(function()
@@ -234,8 +283,8 @@ local function sendHeartbeat()
         -- In a real implementation, this would query actual Team Create users
         -- For now, simulate with local player
         table.insert(connectionStatus.teamCreateUsers, {
-            userId = Players.LocalPlayer.UserId,
-            name = Players.LocalPlayer.Name,
+                    userId = Players.LocalPlayer and Players.LocalPlayer.UserId or 0,
+        name = Players.LocalPlayer and Players.LocalPlayer.Name or "Unknown",
             status = "Active",
             lastSeen = lastHeartbeat
         })
@@ -253,40 +302,6 @@ local function sendHeartbeat()
             quality = connectionStatus.quality
         })
     end
-end
-
-local function attemptReconnection()
-    if reconnectAttempts >= RECONNECT_ATTEMPTS then
-        warn("[TCE] Max reconnection attempts reached")
-        return false
-    end
-    
-    reconnectAttempts = reconnectAttempts + 1
-    print("[TCE] Attempting reconnection " .. reconnectAttempts .. "/" .. RECONNECT_ATTEMPTS)
-    
-    -- Create emergency snapshot before reconnection
-    createSnapshot()
-    
-    -- COMPLIANCE: Safe wait
-    wait(2)
-    
-    -- Reset connection state
-    lastHeartbeat = os.time()
-    connectionStatus.isConnected = true
-    connectionStatus.quality = "Good"
-    reconnectAttempts = 0
-    
-    print("[TCE] Reconnection successful")
-    
-    -- Trigger callbacks
-    for _, callback in pairs(connectionCallbacks) do
-        callback("reconnected", {
-            attempts = reconnectAttempts,
-            timestamp = os.time()
-        })
-    end
-    
-    return true
 end
 
 -- Monitoring loop
@@ -316,20 +331,6 @@ local function startMonitoringLoop()
     end)
     
     print("[TCE] Started monitoring loops")
-end
-
-local function stopMonitoringLoop()
-    if heartbeatConnection then
-        heartbeatConnection:Disconnect()
-        heartbeatConnection = nil
-    end
-    
-    if snapshotConnection then
-        snapshotConnection:Disconnect()
-        snapshotConnection = nil
-    end
-    
-    print("[TCE] Stopped monitoring loops")
 end
 
 --[[
@@ -375,7 +376,16 @@ function ConnectionMonitor.stopMonitoring(): ()
     end
     
     isMonitoring = false
-    stopMonitoringLoop()
+    
+    if heartbeatConnection then
+        heartbeatConnection:Disconnect()
+        heartbeatConnection = nil
+    end
+    
+    if snapshotConnection then
+        snapshotConnection:Disconnect()
+        snapshotConnection = nil
+    end
     
     -- COMPLIANCE: Save current state
     saveSnapshots()

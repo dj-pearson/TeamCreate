@@ -42,6 +42,14 @@ local notifications: {NotificationInfo} = {}
 local notificationCallbacks: {[string]: NotificationCallback} = {}
 local isEnabled: boolean = true
 
+-- COMPLIANCE: Studio-only notification display
+local function showStudioNotification(notification)
+    local typeInfo = NOTIFICATION_TYPES[notification.type] or NOTIFICATION_TYPES.INFO
+    
+    -- In plugin context, StarterGui:SetCore is not available, so use print fallback
+    print(string.format("[TCE] %s Notification: %s - %s", typeInfo.icon, notification.title, notification.message))
+end
+
 -- COMPLIANCE: Internal notification system only
 local function createNotification(title, message, notificationType, duration)
     local notification = {
@@ -75,26 +83,6 @@ local function createNotification(title, message, notificationType, duration)
     showStudioNotification(notification)
     
     return notification
-end
-
--- COMPLIANCE: Studio-only notification display
-local function showStudioNotification(notification)
-    local typeInfo = NOTIFICATION_TYPES[notification.type] or NOTIFICATION_TYPES.INFO
-    
-    -- Use StarterGui for in-Studio notifications
-    local success = pcall(function()
-        StarterGui:SetCore("SendNotification", {
-            Title = "Team Create Enhancer",
-            Text = notification.title .. ": " .. notification.message,
-            Duration = notification.duration,
-            Icon = "rbxasset://textures/AnimationEditor/button_animationEditor@2x.png"
-        })
-    end)
-    
-    if not success then
-        -- Fallback to output window
-        print(string.format("[TCE] Notification: %s - %s", notification.title, notification.message))
-    end
 end
 
 --[[

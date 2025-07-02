@@ -1,12 +1,12 @@
 {
-  "name": "TeamCreateEnhancer",
+  "name": "Team Create Pro: Real-Time Control & Collaboration",
   "tree": {
-    "$className": "PluginFolder",
-    "$path": "src",
-    "$properties": {
-      "Name": "TeamCreateEnhancer"
+    "$className": "DataModel",
+    "ServerStorage": {
+      "$className": "ServerStorage",
+      "Team Create Pro: Real-Time Control & Collaboration": {
+        "$path": "src"
+      }
     }
-  },
-  "emitLegacyScripts": false,
-  "servePort": 34872
-} 
+  }
+}

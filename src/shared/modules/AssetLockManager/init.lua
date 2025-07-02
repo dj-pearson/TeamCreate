@@ -132,6 +132,27 @@ local function loadLockData()
 end
 
 -- Visual indicator management
+local function removeLockIndicator(instance)
+    local visual = visualIndicators[instance]
+    if visual then
+        if visual.selectionBox then
+            visual.selectionBox:Destroy()
+        end
+        if visual.billboard then
+            visual.billboard:Destroy()
+        end
+        if visual.pulseAnimation then
+            visual.pulseAnimation:Cancel()
+        end
+        visualIndicators[instance] = nil
+    end
+end
+
+-- Lock management functions
+local function isLockExpired(lockInfo)
+    return (os.time() - lockInfo.timestamp) > LOCK_TIMEOUT
+end
+
 local function createLockIndicator(instance, lockInfo)
     if not instance or not instance:IsA("BasePart") then
         return nil
@@ -205,22 +226,6 @@ local function createLockIndicator(instance, lockInfo)
     return indicator
 end
 
-local function removeLockIndicator(instance)
-    local visual = visualIndicators[instance]
-    if visual then
-        if visual.selectionBox then
-            visual.selectionBox:Destroy()
-        end
-        if visual.billboard then
-            visual.billboard:Destroy()
-        end
-        if visual.pulseAnimation then
-            visual.pulseAnimation:Cancel()
-        end
-        visualIndicators[instance] = nil
-    end
-end
-
 local function updateAllVisuals()
     -- Clean up outdated visuals
     for instance, visual in pairs(visualIndicators) do
@@ -239,11 +244,6 @@ local function updateAllVisuals()
             end
         end
     end
-end
-
--- Lock management functions
-local function isLockExpired(lockInfo)
-    return (os.time() - lockInfo.timestamp) > LOCK_TIMEOUT
 end
 
 local function cleanupExpiredLocks()

@@ -875,7 +875,9 @@ Shows a compliance mode notice to the user.
 function UIManager.showComplianceNotice()
     local notice = Instance.new("ScreenGui")
     notice.Name = "ComplianceNotice"
-    notice.Parent = game.Players.LocalPlayer.PlayerGui
+            if game.Players.LocalPlayer and game.Players.LocalPlayer.PlayerGui then
+            notice.Parent = game.Players.LocalPlayer.PlayerGui
+        end
     notice.ResetOnSpawn = false
     
     local frame = createRoundedFrame(notice, {

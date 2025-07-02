@@ -236,14 +236,18 @@ function PermissionManager.initialize(state: PluginState): ()
     loadRoleConfiguration()
     
     -- Set up default roles for current session
-    local currentUser = Players.LocalPlayer.UserId
-    if not userRoles[currentUser] then
-        userRoles[currentUser] = "OWNER" -- Plugin installer is owner by default
-        saveRoleConfiguration()
+    local localPlayer = Players.LocalPlayer
+    if localPlayer and localPlayer.UserId then
+        local currentUser = localPlayer.UserId
+        if not userRoles[currentUser] then
+            userRoles[currentUser] = "OWNER" -- Plugin installer is owner by default
+            saveRoleConfiguration()
+        end
+        print("[TCE] Permission Manager initialized")
+        print("[TCE] Current user role:", userRoles[currentUser])
+    else
+        print("[TCE] Permission Manager initialized (LocalPlayer not available)")
     end
-    
-    print("[TCE] Permission Manager initialized")
-    print("[TCE] Current user role:", userRoles[currentUser])
 end
 
 --[[
@@ -287,8 +291,12 @@ Gets the role of the current user (LocalPlayer).
 @return string: The current user's role name
 ]]
 function PermissionManager.getCurrentUserRole(): RoleName
-    local currentUser = Players.LocalPlayer.UserId
-    return PermissionManager.getUserRole(currentUser)
+    local localPlayer = Players.LocalPlayer
+    if localPlayer and localPlayer.UserId then
+        local currentUser = localPlayer.UserId
+        return PermissionManager.getUserRole(currentUser)
+    end
+    return "VIEWER" -- Default role when LocalPlayer not available
 end
 
 --[[
