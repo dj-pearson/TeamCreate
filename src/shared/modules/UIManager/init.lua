@@ -876,17 +876,23 @@ function UIManager.refreshOverview()
     -- Update Connection Status
     if ConnectionMonitor then
         local status = ConnectionMonitor.getConnectionStatus()
-        local statusText = status.isConnected and "Connected" or "Disconnected"
-        local statusColor
+        local statusText, statusColor
         
-        if status.quality == "Excellent" then
+        if not status.isConnected then
+            statusText = "Disconnected"
+            statusColor = UI_CONSTANTS.COLORS.ERROR_RED
+        elseif status.quality == "Excellent" then
+            statusText = "Connected"
             statusColor = UI_CONSTANTS.COLORS.SUCCESS_GREEN
         elseif status.quality == "Good" then
+            statusText = "Available" -- Team Create available but not active
             statusColor = UI_CONSTANTS.COLORS.ACCENT_TEAL
         elseif status.quality == "Poor" then
+            statusText = "Unstable"
             statusColor = UI_CONSTANTS.COLORS.ACCENT_BLUE
-        else -- Disconnected
-            statusColor = UI_CONSTANTS.COLORS.ERROR_RED
+        else
+            statusText = "Unknown"
+            statusColor = UI_CONSTANTS.COLORS.TEXT_SECONDARY
         end
         
         UIManager.updateConnectionStatus(statusText, statusColor)
