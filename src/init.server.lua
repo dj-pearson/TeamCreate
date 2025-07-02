@@ -127,7 +127,8 @@ local function initializePlugin(): ()
         PermissionManager = PermissionManager,
         AssetLockManager = AssetLockManager,
         ConnectionMonitor = ConnectionMonitor,
-        NotificationManager = NotificationManager
+        NotificationManager = NotificationManager,
+        ConflictResolver = ConflictResolver
     }
     UIManager.setModuleReferences(moduleRefs)
     

@@ -29,6 +29,12 @@ local PermissionManager = nil
 local AssetLockManager = nil
 local ConnectionMonitor = nil
 local NotificationManager = nil
+local ConflictResolver = nil
+
+-- Auto-refresh system
+local refreshConnection = nil
+local REFRESH_INTERVAL = 5 -- seconds
+local lastRefreshTime = 0
 
 -- UI Creation Utilities
 local function createRoundedFrame(parent, props)
@@ -414,6 +420,42 @@ local function createAssetsPanel(parent)
         BackgroundColor3 = UI_CONSTANTS.COLORS.ACCENT_BLUE
     })
     
+    -- Add click handler for Lock Selected button
+    lockSelectedButton.MouseButton1Click:Connect(function()
+        local Selection = game:GetService("Selection")
+        local selected = Selection:Get()
+        
+        if #selected == 0 then
+            if NotificationManager then
+                NotificationManager.sendMessage("No Selection", "Please select an asset to lock", "WARNING")
+            end
+            return
+        end
+        
+        local lockedCount = 0
+        for _, instance in ipairs(selected) do
+            if AssetLockManager then
+                local success, message = AssetLockManager.lockAsset(instance, "manual")
+                if success then
+                    lockedCount = lockedCount + 1
+                end
+            end
+        end
+        
+        if NotificationManager then
+            if lockedCount > 0 then
+                NotificationManager.sendMessage("Assets Locked", "Successfully locked " .. lockedCount .. " asset(s)", "SUCCESS")
+            else
+                NotificationManager.sendMessage("Lock Failed", "Could not lock selected assets", "ERROR")
+            end
+        end
+        
+        -- Refresh assets panel
+        if currentTab == "assets" then
+            UIManager.refreshAssets()
+        end
+    end)
+    
     local unlockAllButton = createStyledButton(actionsFrame, {
         Name = "UnlockAllButton", 
         Text = "🔓 Unlock My Assets",
@@ -421,6 +463,26 @@ local function createAssetsPanel(parent)
         Position = UDim2.new(0, 160, 0, 40),
         BackgroundColor3 = UI_CONSTANTS.COLORS.ACCENT_MAGENTA
     })
+    
+    -- Add click handler for Unlock All button
+    unlockAllButton.MouseButton1Click:Connect(function()
+        if AssetLockManager then
+            local unlockedCount = AssetLockManager.unlockAllUserAssets()
+            
+            if NotificationManager then
+                if unlockedCount > 0 then
+                    NotificationManager.sendMessage("Assets Unlocked", "Unlocked " .. unlockedCount .. " of your assets", "SUCCESS")
+                else
+                    NotificationManager.sendMessage("No Assets", "You have no locked assets to unlock", "INFO")
+                end
+            end
+            
+            -- Refresh assets panel
+            if currentTab == "assets" then
+                UIManager.refreshAssets()
+            end
+        end
+    end)
     
     -- Conflict Status
     local conflictFrame = createRoundedFrame(panel, {
@@ -717,6 +779,9 @@ function UIManager.initialize(widget, constants)
         panel.Visible = (id == currentTab)
     end
     
+    -- Start auto-refresh
+    UIManager.startAutoRefresh()
+    
     print("[TCE] UI initialized with all panels - compliant design")
 end
 
@@ -729,6 +794,7 @@ function UIManager.setModuleReferences(modules)
     AssetLockManager = modules.AssetLockManager
     ConnectionMonitor = modules.ConnectionMonitor
     NotificationManager = modules.NotificationManager
+    ConflictResolver = modules.ConflictResolver
     
     print("[TCE] UI module references set")
 end
@@ -767,6 +833,37 @@ function UIManager.refresh()
         UIManager.refreshPermissions()
     elseif currentTab == "assets" then
         UIManager.refreshAssets()
+    elseif currentTab == "notifications" then
+        UIManager.refreshNotifications()
+    end
+    lastRefreshTime = os.time()
+end
+
+--[[
+Starts auto-refresh of UI content every REFRESH_INTERVAL seconds.
+]]
+function UIManager.startAutoRefresh()
+    if refreshConnection then
+        return -- Already running
+    end
+    
+    refreshConnection = RunService.Heartbeat:Connect(function()
+        if os.time() - lastRefreshTime >= REFRESH_INTERVAL then
+            UIManager.refresh()
+        end
+    end)
+    
+    print("[TCE] Auto-refresh started (", REFRESH_INTERVAL, "s interval)")
+end
+
+--[[
+Stops auto-refresh of UI content.
+]]
+function UIManager.stopAutoRefresh()
+    if refreshConnection then
+        refreshConnection:Disconnect()
+        refreshConnection = nil
+        print("[TCE] Auto-refresh stopped")
     end
 end
 
@@ -774,9 +871,37 @@ end
 Refreshes the Overview panel with live connection and user data.
 ]]
 function UIManager.refreshOverview()
+    if not contentPanels.overview then return end
+    
+    -- Update Connection Status
     if ConnectionMonitor then
         local status = ConnectionMonitor.getConnectionStatus()
-        UIManager.updateConnectionStatus(status.status, status.color)
+        local statusText = status.isConnected and "Connected" or "Disconnected"
+        local statusColor
+        
+        if status.quality == "Excellent" then
+            statusColor = UI_CONSTANTS.COLORS.SUCCESS_GREEN
+        elseif status.quality == "Good" then
+            statusColor = UI_CONSTANTS.COLORS.ACCENT_TEAL
+        elseif status.quality == "Poor" then
+            statusColor = UI_CONSTANTS.COLORS.ACCENT_BLUE
+        else -- Disconnected
+            statusColor = UI_CONSTANTS.COLORS.ERROR_RED
+        end
+        
+        UIManager.updateConnectionStatus(statusText, statusColor)
+        
+        -- Update Active Users
+        local activeUsers = ConnectionMonitor.getActiveUsers()
+        UIManager.updateUserList(activeUsers)
+        
+        -- Update Session Stats
+        UIManager.updateSessionStats(status)
+    end
+    
+    -- Update Recent Activity
+    if NotificationManager then
+        UIManager.updateRecentActivity()
     end
 end
 
@@ -803,15 +928,117 @@ end
 Refreshes the Assets panel with current lock information.
 ]]
 function UIManager.refreshAssets()
-    if AssetLockManager and contentPanels.assets then
-        -- Update locked assets display
-        local lockedFrame = contentPanels.assets:FindFirstChild("LockedAssets")
-        if lockedFrame and AssetLockManager.getLockedAssets then
-            local lockedAssets = AssetLockManager.getLockedAssets()
-            local lockedLabel = lockedFrame:FindFirstChild("LockedLabel")
-            if lockedLabel then
-                lockedLabel.Text = "Currently Locked Assets (" .. #lockedAssets .. ")"
-            end
+    if not contentPanels.assets then return end
+    
+    local lockedFrame = contentPanels.assets:FindFirstChild("LockedAssets")
+    if not lockedFrame then return end
+    
+    -- Update header
+    local lockedLabel = lockedFrame:FindFirstChild("LockedLabel")
+    local lockedAssets = {}
+    local assetCount = 0
+    
+    if AssetLockManager and AssetLockManager.getLockedAssets then
+        lockedAssets = AssetLockManager.getLockedAssets()
+        for _ in pairs(lockedAssets) do
+            assetCount = assetCount + 1
+        end
+    end
+    
+    if lockedLabel then
+        lockedLabel.Text = "Currently Locked Assets (" .. assetCount .. ")"
+    end
+    
+    -- Clear existing asset entries
+    for _, child in pairs(lockedFrame:GetChildren()) do
+        if child.Name:match("^Asset_") then
+            child:Destroy()
+        end
+    end
+    
+    -- Add locked asset entries
+    local entryIndex = 0
+    for path, lockInfo in pairs(lockedAssets) do
+        if entryIndex < 6 then -- Show max 6 assets in panel
+            entryIndex = entryIndex + 1
+            
+            local assetEntry = Instance.new("Frame")
+            assetEntry.Name = "Asset_" .. entryIndex
+            assetEntry.Parent = lockedFrame
+            assetEntry.Size = UDim2.new(1, -20, 0, 25)
+            assetEntry.Position = UDim2.new(0, 10, 0, 30 + (entryIndex-1) * 27)
+            assetEntry.BackgroundTransparency = 1
+            
+            -- Lock icon
+            local lockIcon = Instance.new("TextLabel")
+            lockIcon.Name = "LockIcon"
+            lockIcon.Parent = assetEntry
+            lockIcon.Size = UDim2.new(0, 20, 0, 20)
+            lockIcon.Position = UDim2.new(0, 0, 0, 2)
+            lockIcon.BackgroundTransparency = 1
+            lockIcon.Text = "🔒"
+            lockIcon.TextColor3 = PermissionManager and PermissionManager.getRoleColor(lockInfo.role) or UI_CONSTANTS.COLORS.ACCENT_BLUE
+            lockIcon.TextScaled = true
+            lockIcon.Font = UI_CONSTANTS.FONTS.MAIN
+            
+            -- Asset name
+            local assetName = path:match("([^/]+)$") or path -- Get last part of path
+            local nameLabel = Instance.new("TextLabel")
+            nameLabel.Name = "NameLabel"
+            nameLabel.Parent = assetEntry
+            nameLabel.Size = UDim2.new(0.5, -25, 1, 0)
+            nameLabel.Position = UDim2.new(0, 25, 0, 0)
+            nameLabel.BackgroundTransparency = 1
+            nameLabel.Text = assetName
+            nameLabel.TextColor3 = UI_CONSTANTS.COLORS.TEXT_PRIMARY
+            nameLabel.TextScaled = true
+            nameLabel.Font = UI_CONSTANTS.FONTS.MAIN
+            nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+            nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
+            
+            -- User name
+            local userLabel = Instance.new("TextLabel")
+            userLabel.Name = "UserLabel"
+            userLabel.Parent = assetEntry
+            userLabel.Size = UDim2.new(0.5, 0, 1, 0)
+            userLabel.Position = UDim2.new(0.5, 0, 0, 0)
+            userLabel.BackgroundTransparency = 1
+            userLabel.Text = lockInfo.userName or ("User " .. lockInfo.userId)
+            userLabel.TextColor3 = UI_CONSTANTS.COLORS.TEXT_SECONDARY
+            userLabel.TextScaled = true
+            userLabel.Font = UI_CONSTANTS.FONTS.MAIN
+            userLabel.TextXAlignment = Enum.TextXAlignment.Right
+            userLabel.TextTruncate = Enum.TextTruncate.AtEnd
+        end
+    end
+    
+    -- Show "No assets locked" if empty
+    if assetCount == 0 then
+        local noAssetsLabel = Instance.new("TextLabel")
+        noAssetsLabel.Name = "Asset_None"
+        noAssetsLabel.Parent = lockedFrame
+        noAssetsLabel.Size = UDim2.new(1, -20, 0, 30)
+        noAssetsLabel.Position = UDim2.new(0, 10, 0, 50)
+        noAssetsLabel.BackgroundTransparency = 1
+        noAssetsLabel.Text = "No assets are currently locked"
+        noAssetsLabel.TextColor3 = UI_CONSTANTS.COLORS.TEXT_SECONDARY
+        noAssetsLabel.TextScaled = true
+        noAssetsLabel.Font = UI_CONSTANTS.FONTS.MAIN
+        noAssetsLabel.TextXAlignment = Enum.TextXAlignment.Center
+    end
+    
+    -- Update conflict status
+    local conflictFrame = contentPanels.assets:FindFirstChild("ConflictStatus")
+    if conflictFrame and ConflictResolver then
+        local conflictLabel = conflictFrame:FindFirstChild("ConflictLabel")
+        local activeConflicts = ConflictResolver.getActiveConflicts and ConflictResolver.getActiveConflicts() or {}
+        local conflictCount = 0
+        for _ in pairs(activeConflicts) do
+            conflictCount = conflictCount + 1
+        end
+        
+        if conflictLabel then
+            conflictLabel.Text = "Edit Conflicts (" .. conflictCount .. " active)"
         end
     end
 end
@@ -849,14 +1076,317 @@ Updates the active user list display in the Overview panel.
 @param users table: List of active users
 ]]
 function UIManager.updateUserList(users)
-    if contentPanels.overview then
-        local usersFrame = contentPanels.overview:FindFirstChild("ActiveUsers")
-        if usersFrame then
-            local usersLabel = usersFrame:FindFirstChild("UsersLabel")
-            if usersLabel then
-                usersLabel.Text = "Active Users (" .. #users .. ")"
+    if not contentPanels.overview then return end
+    
+    local usersFrame = contentPanels.overview:FindFirstChild("ActiveUsers")
+    if not usersFrame then return end
+    
+    -- Update header
+    local usersLabel = usersFrame:FindFirstChild("UsersLabel")
+    if usersLabel then
+        usersLabel.Text = "Active Users (" .. #users .. ")"
+    end
+    
+    -- Clear existing user entries
+    for _, child in pairs(usersFrame:GetChildren()) do
+        if child.Name:match("^User_") then
+            child:Destroy()
+        end
+    end
+    
+    -- Add user entries
+    for i, user in ipairs(users) do
+        if i <= 3 then -- Show max 3 users in overview
+            local userEntry = Instance.new("Frame")
+            userEntry.Name = "User_" .. user.userId
+            userEntry.Parent = usersFrame
+            userEntry.Size = UDim2.new(1, -20, 0, 20)
+            userEntry.Position = UDim2.new(0, 10, 0, 30 + (i-1) * 22)
+            userEntry.BackgroundTransparency = 1
+            
+            -- Status dot
+            local statusDot = Instance.new("Frame")
+            statusDot.Name = "StatusDot"
+            statusDot.Parent = userEntry
+            statusDot.Size = UDim2.new(0, 8, 0, 8)
+            statusDot.Position = UDim2.new(0, 0, 0.5, -4)
+            statusDot.BorderSizePixel = 0
+            statusDot.BackgroundColor3 = user.status == "Active" and UI_CONSTANTS.COLORS.SUCCESS_GREEN or UI_CONSTANTS.COLORS.TEXT_SECONDARY
+            
+            local corner = Instance.new("UICorner")
+            corner.CornerRadius = UDim.new(1, 0)
+            corner.Parent = statusDot
+            
+            -- User name
+            local nameLabel = Instance.new("TextLabel")
+            nameLabel.Name = "NameLabel"
+            nameLabel.Parent = userEntry
+            nameLabel.Size = UDim2.new(1, -15, 1, 0)
+            nameLabel.Position = UDim2.new(0, 15, 0, 0)
+            nameLabel.BackgroundTransparency = 1
+            nameLabel.Text = user.name or ("User " .. user.userId)
+            nameLabel.TextColor3 = UI_CONSTANTS.COLORS.TEXT_PRIMARY
+            nameLabel.TextScaled = true
+            nameLabel.Font = UI_CONSTANTS.FONTS.MAIN
+            nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+        end
+    end
+end
+
+--[[
+Updates the session statistics display in the Overview panel.
+@param status table: Connection status from ConnectionMonitor
+]]
+function UIManager.updateSessionStats(status)
+    if not contentPanels.overview then return end
+    
+    local statsFrame = contentPanels.overview:FindFirstChild("Statistics")
+    if not statsFrame then return end
+    
+    -- Clear existing stats
+    for _, child in pairs(statsFrame:GetChildren()) do
+        if child.Name:match("^Stat_") then
+            child:Destroy()
+        end
+    end
+    
+    local stats = {
+        {label = "Uptime", value = math.floor(status.uptime or 0) .. "s", color = UI_CONSTANTS.COLORS.ACCENT_TEAL},
+        {label = "Quality", value = status.quality, color = status.quality == "Excellent" and UI_CONSTANTS.COLORS.SUCCESS_GREEN or UI_CONSTANTS.COLORS.ACCENT_BLUE},
+        {label = "Active Users", value = tostring(status.activeUsers or 0), color = UI_CONSTANTS.COLORS.ACCENT_PURPLE}
+    }
+    
+    for i, stat in ipairs(stats) do
+        local statEntry = Instance.new("Frame")
+        statEntry.Name = "Stat_" .. i
+        statEntry.Parent = statsFrame
+        statEntry.Size = UDim2.new(1, -20, 0, 20)
+        statEntry.Position = UDim2.new(0, 10, 0, 30 + (i-1) * 22)
+        statEntry.BackgroundTransparency = 1
+        
+        local labelText = Instance.new("TextLabel")
+        labelText.Name = "Label"
+        labelText.Parent = statEntry
+        labelText.Size = UDim2.new(0.6, 0, 1, 0)
+        labelText.Position = UDim2.new(0, 0, 0, 0)
+        labelText.BackgroundTransparency = 1
+        labelText.Text = stat.label .. ":"
+        labelText.TextColor3 = UI_CONSTANTS.COLORS.TEXT_SECONDARY
+        labelText.TextScaled = true
+        labelText.Font = UI_CONSTANTS.FONTS.MAIN
+        labelText.TextXAlignment = Enum.TextXAlignment.Left
+        
+        local valueText = Instance.new("TextLabel")
+        valueText.Name = "Value"
+        valueText.Parent = statEntry
+        valueText.Size = UDim2.new(0.4, 0, 1, 0)
+        valueText.Position = UDim2.new(0.6, 0, 0, 0)
+        valueText.BackgroundTransparency = 1
+        valueText.Text = stat.value
+        valueText.TextColor3 = stat.color
+        valueText.TextScaled = true
+        valueText.Font = UI_CONSTANTS.FONTS.MAIN
+        valueText.TextXAlignment = Enum.TextXAlignment.Right
+    end
+end
+
+--[[
+Updates the recent activity display in the Overview panel.
+]]
+function UIManager.updateRecentActivity()
+    if not contentPanels.overview then return end
+    
+    local activityFrame = contentPanels.overview:FindFirstChild("RecentActivity")
+    if not activityFrame then return end
+    
+    -- Clear existing activities
+    for _, child in pairs(activityFrame:GetChildren()) do
+        if child.Name:match("^Activity_") then
+            child:Destroy()
+        end
+    end
+    
+    -- Get recent notifications/activities
+    local activities = {}
+    if NotificationManager and NotificationManager.getRecentNotifications then
+        local notifications = NotificationManager.getRecentNotifications()
+        for i, notification in ipairs(notifications) do
+            if i <= 5 then -- Show last 5 activities
+                table.insert(activities, {
+                    text = notification.title .. ": " .. notification.message,
+                    time = os.date("%H:%M:%S", notification.timestamp),
+                    type = notification.type
+                })
             end
         end
+    end
+    
+    -- Add default activities if none exist
+    if #activities == 0 then
+        activities = {
+            {text = "Plugin initialized successfully", time = os.date("%H:%M:%S"), type = "SUCCESS"},
+            {text = "Connection monitoring started", time = os.date("%H:%M:%S"), type = "INFO"},
+            {text = "All systems operational", time = os.date("%H:%M:%S"), type = "SUCCESS"}
+        }
+    end
+    
+    for i, activity in ipairs(activities) do
+        local activityEntry = Instance.new("Frame")
+        activityEntry.Name = "Activity_" .. i
+        activityEntry.Parent = activityFrame
+        activityEntry.Size = UDim2.new(1, -20, 0, 25)
+        activityEntry.Position = UDim2.new(0, 10, 0, 30 + (i-1) * 27)
+        activityEntry.BackgroundTransparency = 1
+        
+        -- Activity text
+        local activityText = Instance.new("TextLabel")
+        activityText.Name = "Text"
+        activityText.Parent = activityEntry
+        activityText.Size = UDim2.new(0.75, 0, 1, 0)
+        activityText.Position = UDim2.new(0, 0, 0, 0)
+        activityText.BackgroundTransparency = 1
+        activityText.Text = activity.text
+        activityText.TextColor3 = UI_CONSTANTS.COLORS.TEXT_PRIMARY
+        activityText.TextScaled = true
+        activityText.Font = UI_CONSTANTS.FONTS.MAIN
+        activityText.TextXAlignment = Enum.TextXAlignment.Left
+        activityText.TextTruncate = Enum.TextTruncate.AtEnd
+        
+        -- Time stamp
+        local timeText = Instance.new("TextLabel")
+        timeText.Name = "Time"
+        timeText.Parent = activityEntry
+        timeText.Size = UDim2.new(0.25, 0, 1, 0)
+        timeText.Position = UDim2.new(0.75, 0, 0, 0)
+        timeText.BackgroundTransparency = 1
+        timeText.Text = activity.time
+        timeText.TextColor3 = UI_CONSTANTS.COLORS.TEXT_SECONDARY
+        timeText.TextScaled = true
+        timeText.Font = UI_CONSTANTS.FONTS.MAIN
+        timeText.TextXAlignment = Enum.TextXAlignment.Right
+    end
+end
+
+--[[
+Refreshes the Notifications panel with recent notification data.
+]]
+function UIManager.refreshNotifications()
+    if not contentPanels.notifications then return end
+    
+    local recentFrame = contentPanels.notifications:FindFirstChild("RecentNotifications")
+    if not recentFrame then return end
+    
+    -- Update header
+    local recentLabel = recentFrame:FindFirstChild("RecentLabel")
+    local notifications = {}
+    local notificationCount = 0
+    
+    if NotificationManager and NotificationManager.getRecentNotifications then
+        notifications = NotificationManager.getRecentNotifications()
+        notificationCount = NotificationManager.getNotificationCount and NotificationManager.getNotificationCount() or #notifications
+    end
+    
+    if recentLabel then
+        recentLabel.Text = "Recent Notifications (" .. notificationCount .. " total)"
+    end
+    
+    -- Clear existing notification entries
+    for _, child in pairs(recentFrame:GetChildren()) do
+        if child.Name:match("^Notif_") then
+            child:Destroy()
+        end
+    end
+    
+    -- Add notification entries
+    for i, notification in ipairs(notifications) do
+        if i <= 8 then -- Show max 8 notifications in panel
+            local notifEntry = Instance.new("Frame")
+            notifEntry.Name = "Notif_" .. i
+            notifEntry.Parent = recentFrame
+            notifEntry.Size = UDim2.new(1, -20, 0, 40)
+            notifEntry.Position = UDim2.new(0, 10, 0, 30 + (i-1) * 42)
+            notifEntry.BackgroundColor3 = UI_CONSTANTS.COLORS.SECONDARY_BG
+            notifEntry.BorderSizePixel = 0
+            
+            local corner = Instance.new("UICorner")
+            corner.CornerRadius = UDim.new(0, 4)
+            corner.Parent = notifEntry
+            
+            -- Type icon
+            local typeIcons = {
+                INFO = "ℹ️",
+                SUCCESS = "✅",
+                WARNING = "⚠️",
+                ERROR = "❌",
+                USER = "👤"
+            }
+            
+            local iconLabel = Instance.new("TextLabel")
+            iconLabel.Name = "IconLabel"
+            iconLabel.Parent = notifEntry
+            iconLabel.Size = UDim2.new(0, 30, 0, 20)
+            iconLabel.Position = UDim2.new(0, 5, 0, 2)
+            iconLabel.BackgroundTransparency = 1
+            iconLabel.Text = typeIcons[notification.type] or "📝"
+            iconLabel.TextScaled = true
+            iconLabel.Font = UI_CONSTANTS.FONTS.MAIN
+            
+            -- Title
+            local titleLabel = Instance.new("TextLabel")
+            titleLabel.Name = "TitleLabel"
+            titleLabel.Parent = notifEntry
+            titleLabel.Size = UDim2.new(1, -80, 0, 18)
+            titleLabel.Position = UDim2.new(0, 35, 0, 2)
+            titleLabel.BackgroundTransparency = 1
+            titleLabel.Text = notification.title
+            titleLabel.TextColor3 = UI_CONSTANTS.COLORS.TEXT_PRIMARY
+            titleLabel.TextScaled = true
+            titleLabel.Font = UI_CONSTANTS.FONTS.MAIN
+            titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+            titleLabel.TextTruncate = Enum.TextTruncate.AtEnd
+            
+            -- Message
+            local messageLabel = Instance.new("TextLabel")
+            messageLabel.Name = "MessageLabel"
+            messageLabel.Parent = notifEntry
+            messageLabel.Size = UDim2.new(1, -80, 0, 16)
+            messageLabel.Position = UDim2.new(0, 35, 0, 20)
+            messageLabel.BackgroundTransparency = 1
+            messageLabel.Text = notification.message
+            messageLabel.TextColor3 = UI_CONSTANTS.COLORS.TEXT_SECONDARY
+            messageLabel.TextScaled = true
+            messageLabel.Font = UI_CONSTANTS.FONTS.MAIN
+            messageLabel.TextXAlignment = Enum.TextXAlignment.Left
+            messageLabel.TextTruncate = Enum.TextTruncate.AtEnd
+            
+            -- Time
+            local timeLabel = Instance.new("TextLabel")
+            timeLabel.Name = "TimeLabel"
+            timeLabel.Parent = notifEntry
+            timeLabel.Size = UDim2.new(0, 40, 1, 0)
+            timeLabel.Position = UDim2.new(1, -45, 0, 0)
+            timeLabel.BackgroundTransparency = 1
+            timeLabel.Text = os.date("%H:%M", notification.timestamp)
+            timeLabel.TextColor3 = UI_CONSTANTS.COLORS.TEXT_SECONDARY
+            timeLabel.TextScaled = true
+            timeLabel.Font = UI_CONSTANTS.FONTS.MAIN
+            timeLabel.TextXAlignment = Enum.TextXAlignment.Right
+        end
+    end
+    
+    -- Show "No notifications" if empty
+    if #notifications == 0 then
+        local noNotifsLabel = Instance.new("TextLabel")
+        noNotifsLabel.Name = "Notif_None"
+        noNotifsLabel.Parent = recentFrame
+        noNotifsLabel.Size = UDim2.new(1, -20, 0, 40)
+        noNotifsLabel.Position = UDim2.new(0, 10, 0, 60)
+        noNotifsLabel.BackgroundTransparency = 1
+        noNotifsLabel.Text = "No notifications yet"
+        noNotifsLabel.TextColor3 = UI_CONSTANTS.COLORS.TEXT_SECONDARY
+        noNotifsLabel.TextScaled = true
+        noNotifsLabel.Font = UI_CONSTANTS.FONTS.MAIN
+        noNotifsLabel.TextXAlignment = Enum.TextXAlignment.Center
     end
 end
 
@@ -865,8 +1395,13 @@ Adds an activity log entry to the UI.
 @param message string: Activity message
 ]]
 function UIManager.addActivityLog(message)
-    -- Add to internal activity feed
+    -- Add to internal activity feed and refresh if overview is active
     print("[TCE] Activity:", message)
+    if currentTab == "overview" then
+        UIManager.updateRecentActivity()
+    elseif currentTab == "notifications" then
+        UIManager.refreshNotifications()
+    end
 end
 
 --[[
@@ -918,6 +1453,9 @@ end
 Cleans up the UIManager (destroys UI, clears references).
 ]]
 function UIManager.cleanup()
+    -- Stop auto-refresh
+    UIManager.stopAutoRefresh()
+    
     if mainFrame then
         mainFrame:Destroy()
         mainFrame = nil

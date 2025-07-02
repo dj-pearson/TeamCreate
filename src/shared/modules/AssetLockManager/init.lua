@@ -576,6 +576,31 @@ function AssetLockManager.importLocks(data: LockExportData): boolean
 end
 
 --[[
+Unlocks all assets locked by the current user.
+@return number: Number of assets unlocked
+]]
+function AssetLockManager.unlockAllUserAssets(): number
+    local currentUser = Players.LocalPlayer and Players.LocalPlayer.UserId or 0
+    local unlockedCount = 0
+    
+    local pathsToUnlock = {}
+    for path, lockInfo in pairs(assetLocks) do
+        if lockInfo.userId == currentUser then
+            table.insert(pathsToUnlock, path)
+        end
+    end
+    
+    for _, path in ipairs(pathsToUnlock) do
+        local success = AssetLockManager.unlockAsset(path, currentUser, false)
+        if success then
+            unlockedCount = unlockedCount + 1
+        end
+    end
+    
+    return unlockedCount
+end
+
+--[[
 Cleans up the AssetLockManager (disconnects, clears visuals, saves state).
 ]]
 function AssetLockManager.cleanup(): ()

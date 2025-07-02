@@ -272,6 +272,23 @@ function NotificationManager.sendCustomNotification(title, description, notifTyp
     return true
 end
 
+function NotificationManager.getRecentNotifications()
+    -- Return the last 10 notifications in reverse chronological order
+    local recent = {}
+    for i = #notifications, math.max(1, #notifications - 9), -1 do
+        table.insert(recent, notifications[i])
+    end
+    return recent
+end
+
+function NotificationManager.getNotificationCount()
+    return #notifications
+end
+
+function NotificationManager.getAllNotifications()
+    return notifications
+end
+
 -- COMPLIANCE: No external testing - internal validation only
 function NotificationManager.testNotifications()
     if not isEnabled then
