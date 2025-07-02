@@ -349,11 +349,12 @@ Initializes the ConflictResolver with plugin state.
 Sets up selection change monitoring for conflict detection.
 @param state table: Plugin state table
 ]]
-function ConflictResolver.initialize(state: PluginState): ()
+local function showConflictWarning(conflict)
+    local screenGui = Instance.new("ScreenGui")
     screenGui.Name = "TCE_ConflictWarning"
-            if game.Players.LocalPlayer and game.Players.LocalPlayer.PlayerGui then
-            screenGui.Parent = game.Players.LocalPlayer.PlayerGui
-        end
+    if game.Players.LocalPlayer and game.Players.LocalPlayer.PlayerGui then
+        screenGui.Parent = game.Players.LocalPlayer.PlayerGui
+    end
     screenGui.ResetOnSpawn = false
     
     -- Main frame with modern dark styling
@@ -421,7 +422,7 @@ function ConflictResolver.initialize(state: PluginState): ()
     assetInfo.Size = UDim2.new(1, -40, 0, 25)
     assetInfo.Position = UDim2.new(0, 20, 0, 115)
     assetInfo.BackgroundTransparency = 1
-    assetInfo.Text = "Asset: " .. (conflict.instance.Name or "Unknown")
+    assetInfo.Text = "Asset: " .. (conflict.instance and conflict.instance.Name or "Unknown")
     assetInfo.TextColor3 = Color3.fromHex("#14b8a6")
     assetInfo.TextScaled = true
     assetInfo.Font = Enum.Font.GothamMedium
@@ -472,7 +473,7 @@ function ConflictResolver.initialize(state: PluginState): ()
     
     -- Button handlers
     lockButton.MouseButton1Click:Connect(function()
-        if AssetLockManager then
+        if AssetLockManager and conflict.instance then
             local success, message = AssetLockManager.lockAsset(conflict.instance, "conflict")
             if success then
                 resolveConflict(conflict.id, "locked")
@@ -484,7 +485,9 @@ function ConflictResolver.initialize(state: PluginState): ()
     end)
     
     cancelButton.MouseButton1Click:Connect(function()
-        resolveConflict(conflict.id, "cancelled")
+        if conflict.id then
+            resolveConflict(conflict.id, "cancelled")
+        end
         screenGui:Destroy()
     end)
     
@@ -496,8 +499,10 @@ function ConflictResolver.initialize(state: PluginState): ()
         end
     end)
     
-    conflict.warningShown = true
-    conflict.warningGui = screenGui
+    if conflict then
+        conflict.warningShown = true
+        conflict.warningGui = screenGui
+    end
 end
 
 local function resolveConflict(conflictId, resolution)

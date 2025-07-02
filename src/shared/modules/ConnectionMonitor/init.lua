@@ -64,7 +64,7 @@ local function attemptReconnection()
     print("[TCE] Attempting reconnection " .. reconnectAttempts .. "/" .. RECONNECT_ATTEMPTS)
     
     -- Create emergency snapshot before reconnection
-    createSnapshot()
+    local snapshot = createSnapshot()
     
     -- Reset connection state immediately (no wait needed)
     lastHeartbeat = os.time()

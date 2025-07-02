@@ -297,6 +297,14 @@ local function loadTaskData()
         end
     end
     
+    local function countTasks(taskTable)
+        local count = 0
+        for _ in pairs(taskTable) do
+            count = count + 1
+        end
+        return count
+    end
+    
     print("[TCE] Loaded", countTasks(tasks), "tasks (" .. countTasks(sharedTasks) .. " shared, " .. countTasks(localTasks) .. " local)")
     lastSyncTime = os.time()
 end
@@ -340,8 +348,9 @@ local function syncWithSharedStorage()
         print("[TCE] Synced tasks from shared storage")
         
         -- Refresh UI if needed
-        if UIManager and UIManager.refreshTasks then
-            UIManager.refreshTasks()
+        -- Note: UIManager reference will be set during initialization
+        if _G.UIManager and _G.UIManager.refreshTasks then
+            _G.UIManager.refreshTasks()
         end
     end
     
@@ -366,8 +375,8 @@ local function getUserName(userId: number): string
     end
     
     -- Try to get from active users if available
-    if ConnectionMonitor and ConnectionMonitor.getActiveUsers then
-        local activeUsers = ConnectionMonitor.getActiveUsers()
+    if _G.ConnectionMonitor and _G.ConnectionMonitor.getActiveUsers then
+        local activeUsers = _G.ConnectionMonitor.getActiveUsers()
         for _, user in ipairs(activeUsers) do
             if user.userId == userId then
                 return user.name
@@ -423,6 +432,14 @@ function TaskManager.createTask(taskData: {
     
     if not taskData.title or taskData.title == "" then
         return nil, "Task title is required"
+    end
+    
+    local function countTasks(taskTable)
+        local count = 0
+        for _ in pairs(taskTable) do
+            count = count + 1
+        end
+        return count
     end
     
     if countTasks(tasks) >= MAX_TASKS then
@@ -860,6 +877,14 @@ function TaskManager.initialize(state: any): ()
         syncWithSharedStorage()
     end)
     
+    local function countTasks(taskTable)
+        local count = 0
+        for _ in pairs(taskTable) do
+            count = count + 1
+        end
+        return count
+    end
+    
     print("[TCE] Task Manager initialized with", countTasks(tasks), "tasks (shared storage enabled)")
 end
 
@@ -891,15 +916,6 @@ function TaskManager.cleanup(): ()
     taskCallbacks = {}
     
     print("[TCE] Task Manager cleaned up")
-end
-
--- Helper function to count table elements
-local function countTasks(taskTable)
-    local count = 0
-    for _ in pairs(taskTable) do 
-        count = count + 1 
-    end
-    return count
 end
 
 return TaskManager 
